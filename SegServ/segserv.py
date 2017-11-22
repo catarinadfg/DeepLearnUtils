@@ -1,12 +1,17 @@
 
 from __future__ import division, print_function
-import sys, os, io, imageio, argparse
+import sys, os, io, argparse
 
 from flask import Flask, request, send_file
 
 import tensorflow as tf
 
 import numpy as np
+
+try:
+    from imageio import imwrite, imread
+except:
+    from scipy.misc import imsave as imwrite,imread
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from segmenter import Segmenter
@@ -22,7 +27,7 @@ def segment(name):
     segobj=segmap[name]
     img = request.files['image']
     
-    imgmat=imageio.imread(img.stream) # read posted image file to matrix
+    imgmat=imread(img.stream) # read posted image file to matrix
     imgmat=rescaleArray(imgmat) # input images are expected to be normalized
     
     if imgmat.ndim==2:
@@ -31,7 +36,7 @@ def segment(name):
     result=segobj.apply(imgmat) # apply segmentation
     
     stream=io.BytesIO()
-    imageio.imwrite(stream,result,format='png') # save result to png file stream
+    imwrite(stream,result,format='png') # save result to png file stream
     stream.seek(0)
     
     return send_file(stream,'image/png') # respond with stream
@@ -51,5 +56,7 @@ if __name__=='__main__':
         n=os.path.splitext(os.path.basename(name))[0]
         segmap[n]=Segmenter(name,args.device)
         
+    tf.logging.info('Running server using device %r with networks %r'%(args.device,segmap.keys()))
     app.run(host=args.host,port=args.port)
+    
    

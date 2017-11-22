@@ -1,14 +1,22 @@
 '''
 This is a Eidolon script used to send the selected image object to a running instance of the SegServ server and then
-load the returned segmentation image. This assumes the segmentation model accepts single channel images and returns
-a binary segmentation, for anything more complex the requestSeg() function should be changed.
+load the returned segmentation image. 
+
+This script is specifically for a network trained to accept a 3 channel image where the channels are the greyscale image
+data, FFT motion information, and edge filter image. These inputs are generated from a time-dependent image object by the 
+function processImage() below to create a single frame input stack. The original training images were generated in the 
+same way to produce single-frame input stacks from time-dependent stacks. The requestSeg() function is also different
+from that in segclient.py to account for this.
 '''
 from __future__ import division, print_function
-from eidolon import ImageSceneObject,processImageNp, trange, first, rescaleArray
+from eidolon import ImageSceneObject, processImageNp, first, rescaleArray, calculateMotionROI
 import io
 import mimetools
 import mimetypes
 import urllib2
+
+import numpy as np
+from scipy import ndimage
 
 try:
     from imageio import imwrite, imread
@@ -18,7 +26,7 @@ except:
 mgr=mgr # pylint:disable=invalid-name,used-before-assignment
 
 # the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
-url=locals().get('url','http://159.92.151.136:5000/segment/realtime')
+url=locals().get('url','http://159.92.151.136:5000/segment/dltk')
 
 
 def encodeMultipartFormdata(fields, files):
@@ -45,17 +53,26 @@ def encodeMultipartFormdata(fields, files):
     return headers, body
 
 
+def processImage(obj):
+    with processImageNp(obj,False) as imat:
+        mag=rescaleArray(imat[...,0])
+        motion=rescaleArray(calculateMotionROI(obj)[0])
+        edge=rescaleArray(ndimage.generic_gradient_magnitude(mag,ndimage.sobel))
+        
+        return mag,motion,edge
+    
+    
 def requestSeg(inmat,outmat,url):
     task=mgr.getCurrentTask()
-    task.setMaxProgress(m.shape[2]*m.shape[3])
+    task.setMaxProgress(inmat.shape[2])
     task.setLabel('Segmenting...')
-    count=0
     
-    for s,t in trange(inmat.shape[2],inmat.shape[3]):
+    count=0
+    for s in range(inmat.shape[2]):
         count+=1
         task.setProgress(count)
             
-        img=rescaleArray(inmat[:,:,s,t])
+        img=inmat[:,:,s,:]
         
         if img.max()>img.min(): # non-empty image
             stream=io.BytesIO()
@@ -72,7 +89,7 @@ def requestSeg(inmat,outmat,url):
             req=urllib2.urlopen(request)
             
             if req.code==200: 
-                outmat[:,:,s,t]=imread(io.BytesIO(req.read()))
+                outmat[:,:,s]=imread(io.BytesIO(req.read()))
     
 
 o=mgr.win.getSelectedObject() or first(mgr.objs)
@@ -82,10 +99,14 @@ if o is None:
 elif not isinstance(o,ImageSceneObject):
     mgr.showMsg('Selected object %r is not an image'%o.getName())
 else:
-    oo=o.plugin.clone(o,o.getName()+'_Seg')
+    oo=o.plugin.extractTimesteps(o,o.getName()+'_Seg',indices=[0])
+    
+    mag,motion,edge=processImage(o)
+    
+    combined=np.stack([mag,motion,edge],axis=-1)
     
     with processImageNp(oo,True) as m:
-        requestSeg(m,m,url)
+        requestSeg(combined,m[...,0],url)
                     
     mgr.addSceneObject(oo)
     

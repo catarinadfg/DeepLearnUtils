@@ -30,6 +30,8 @@ class Segmenter(object):
                 self.x,_,self.y,self.ypred=tf.get_collection('endpoints')[:4] 
                 
                 self.xwidth,self.xheight,self.xdepth=self.x.get_shape().as_list()[2:] # image dimensions
+                
+                tf.logging.info('Graph input dimensions: %r'%((self.xwidth,self.xheight,self.xdepth),))
             
                 self.xw2=self.xwidth//2
                 self.xh2=self.xheight//2
@@ -38,15 +40,15 @@ class Segmenter(object):
                 self.feeddict={self.x:self.tempimg}
             
     def apply(self,img, keepLargest=True):
-        assert img.ndim==3
-        assert img.shape[-1]==self.xdepth
+        assert img.ndim==3, 'Image dimension should be 3, is %r'%img.ndim
+        assert img.shape[-1]==self.xdepth, 'Image depth %r does not match network input depth %r'%(img.shape[-1],self.xdepth)
         
         result=np.zeros(img.shape[:-1])
         imin=img.min()
         imax=img.max()
         
         if imax>imin:
-            tf.logging.info('Segmenting image of dimensions %r'%(img.shape,))
+            tf.logging.info('Segmenting image of dimensions %r on device %r'%(img.shape,self.device))
             img=(img-imin)/(imax-imin) # normalize image
             width,height,depth=img.shape
         
