@@ -25,7 +25,10 @@ segmap={}
 @app.route('/segment/<name>', methods=['POST'])
 def segment(name):
     segobj=segmap[name]
+    keepLargest=request.form.get('keepLargest','true').lower()=='true'
     img = request.files['image']
+    
+    print(repr(request.form.get('keepLargest',None)))
     
     imgmat=imread(img.stream) # read posted image file to matrix
     imgmat=rescaleArray(imgmat) # input images are expected to be normalized
@@ -33,7 +36,7 @@ def segment(name):
     if imgmat.ndim==2:
         imgmat=np.expand_dims(imgmat,axis=-1)
     
-    result=segobj.apply(imgmat) # apply segmentation
+    result=segobj.apply(imgmat,keepLargest) # apply segmentation
     
     stream=io.BytesIO()
     imwrite(stream,result,format='png') # save result to png file stream

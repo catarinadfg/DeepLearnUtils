@@ -79,7 +79,7 @@ def requestSeg(inmat,outmat,url):
             imwrite(stream,img*255,format='png') # encode image as png
             stream.seek(0)
 
-            headers,body=encodeMultipartFormdata({},{'image':('image.png',stream.read())})
+            headers,body=encodeMultipartFormdata({'keepLargest':'true'},{'image':('image.png',stream.read())})
             request = urllib2.Request(url)
             request.add_data(body)
             

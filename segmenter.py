@@ -60,9 +60,8 @@ class Segmenter(object):
             st=img[w2-wmin:w2+wmin,h2-hmin:h2+hmin]
             self.tempimg[0,0,self.xw2-wmin:self.xw2+wmin,self.xh2-hmin:self.xh2+hmin,:]=st
         
-            with tf.device(self.device):
-                pred=self.sess.run(self.ypred,feed_dict=self.feeddict)
-                pred=pred[0,0]
+            pred=self.sess.run(self.ypred,feed_dict=self.feeddict)
+            pred=pred[0,0]
             
             tf.logging.info('Segment size: %r'%np.sum(pred))
             
