@@ -26,7 +26,7 @@ except:
 mgr=mgr # pylint:disable=invalid-name,used-before-assignment
 
 # the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
-url=locals().get('url','http://159.92.151.136:5000/segment/dltk')
+localurl=locals().get('url','http://159.92.151.136:5000/segment/dltk')
 
 
 def encodeMultipartFormdata(fields, files):
@@ -106,7 +106,7 @@ else:
     combined=np.stack([mag,motion,edge],axis=-1)
     
     with processImageNp(oo,True) as m:
-        requestSeg(combined,m[...,0],url)
+        requestSeg(combined,m[...,0],localurl)
                     
     mgr.addSceneObject(oo)
     

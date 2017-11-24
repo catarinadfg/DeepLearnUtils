@@ -18,7 +18,7 @@ except:
 mgr=mgr # pylint:disable=invalid-name,used-before-assignment
 
 # the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
-url=locals().get('url','http://159.92.151.136:5000/segment/realtime')
+localurl=locals().get('url','http://159.92.151.136:5000/segment/realtime')
 
 
 def encodeMultipartFormdata(fields, files):
@@ -85,7 +85,7 @@ else:
     oo=o.plugin.clone(o,o.getName()+'_Seg')
     
     with processImageNp(oo,True) as m:
-        requestSeg(m,m,url)
+        requestSeg(m,m,localurl)
                     
     mgr.addSceneObject(oo)
     

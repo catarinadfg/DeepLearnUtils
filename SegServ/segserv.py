@@ -28,8 +28,6 @@ def segment(name):
     keepLargest=request.form.get('keepLargest','true').lower()=='true'
     img = request.files['image']
     
-    print(repr(request.form.get('keepLargest',None)))
-    
     imgmat=imread(img.stream) # read posted image file to matrix
     imgmat=rescaleArray(imgmat) # input images are expected to be normalized
     
