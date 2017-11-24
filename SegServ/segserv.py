@@ -15,7 +15,7 @@ except:
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from segmenter import Segmenter
-from trainimagesource import rescaleArray
+from trainutils import rescaleArray
 
 
 app = Flask(__name__)
