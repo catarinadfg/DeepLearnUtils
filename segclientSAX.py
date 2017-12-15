@@ -9,7 +9,7 @@ same way to produce single-frame input stacks from time-dependent stacks. The re
 from that in segclient.py to account for this.
 '''
 from __future__ import division, print_function
-from eidolon import ImageSceneObject, processImageNp, first, rescaleArray, calculateMotionROI
+from eidolon import ImageSceneObject, processImageNp, first, rescaleArray, calculateMotionROI, calculateBinaryMaskBox
 import io
 import mimetools
 import mimetypes
@@ -26,7 +26,7 @@ except:
 mgr=mgr # pylint:disable=invalid-name,used-before-assignment
 
 # the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
-localurl=locals().get('url','http://159.92.151.136:5000/segment/dltk')
+localurl=locals().get('url','http://bioeng187-pc:5000/segment/dltk')
 
 
 def encodeMultipartFormdata(fields, files):
@@ -104,6 +104,10 @@ else:
     mag,motion,edge=processImage(o)
     
     combined=np.stack([mag,motion,edge],axis=-1)
+    
+    minx,miny,maxx,maxy=calculateBinaryMaskBox(mag)
+    
+    combined[miny:maxy,minx:maxx]=0
     
     with processImageNp(oo,True) as m:
         requestSeg(combined,m[...,0],localurl)

@@ -31,9 +31,9 @@ def segment(name):
     imgmat=imread(img.stream) # read posted image file to matrix
     imgmat=rescaleArray(imgmat) # input images are expected to be normalized
     
-    if imgmat.ndim==2:
+    if imgmat.ndim==2: # extend a (W,H) stack to be (W,H,C) with a single channel
         imgmat=np.expand_dims(imgmat,axis=-1)
-    
+        
     result=segobj.apply(imgmat,keepLargest) # apply segmentation
     
     stream=io.BytesIO()
@@ -52,6 +52,12 @@ if __name__=='__main__':
     parser.add_argument('--port',help='Post to listen on',type=int,default=5000)
     parser.add_argument('--device',help='Tensorflow device name to compute on',default='/gpu:0')
     args=parser.parse_args()
+    
+    class EchoSegmenter(object):
+        def apply(self,img,_):
+            return img[...,0]
+        
+    segmap['echo']=EchoSegmenter() # add a "segmenter" which simply returns the first channel of any input image
     
     for name in args.metafilename:
         n=os.path.splitext(os.path.basename(name))[0]

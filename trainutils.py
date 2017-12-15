@@ -1,6 +1,8 @@
 
+from __future__ import division, print_function
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 
 def rescaleArray(arr,minv=0.0,maxv=1.0):
@@ -11,6 +13,7 @@ def rescaleArray(arr,minv=0.0,maxv=1.0):
 
 
 def comparePrediction(imgs,masks,logits,preds,title=''):
+    figax=[]
     for index in range(preds.shape[0]):
         im=imgs[index,...,0]
         logit=np.squeeze(logits[index])
@@ -37,6 +40,10 @@ def comparePrediction(imgs,masks,logits,preds,title=''):
         else:
             ax[0].imshow(im)
             ax[3].imshow(im+pred*0.5)
+            
+        figax.append((fig,ax))
+        
+    return figax
 
         
 def viewImages(img,mask,maskval=0.25):
@@ -49,5 +56,43 @@ def viewImages(img,mask,maskval=0.25):
             
         img=img+mask
         
-    pg.image(img,xvals=np.arange(img.shape[0]+1))
+    p=pg.image(img,xvals=np.arange(img.shape[0]+1))
+    p.parent().showMaximized()
+    
+    def _keypress(e):
+        if e.key()==pg.QtCore.Qt.Key_Escape:
+            p.parent().close()
+            
+    setattr(p.parent(),'keyPressEvent',_keypress)
+    
+
+def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log'):
+    numimages=len(imagemap)
+    
+    fig = plt.figure(figsize=(20,10))
+    gs = gridspec.GridSpec(2,numimages,height_ratios=[1, 3],wspace=0.1, hspace=0.05)
+    
+    graph=plt.subplot(gs[0,:])
+    graph.set_title(graphtitle)
+    graph.set_yscale(yscale)
+    graph.axis('on')
+    
+    for n,v in graphmap.items():
+        graph.plot(v,label=n)
+    
+    ims=[]
+    for i,n in enumerate(sorted(imagemap)):
+        im=plt.subplot(gs[1,i])
+        im.imshow(np.squeeze(imagemap[n]),cmap='gray')
+        im.set_title(n)
+        im.axis('off')
+        ims.append(im)
+        
+    return fig,[graph]+ims
+
+    
+if __name__=='__main__':
+    im1=np.random.rand(5,10)
+    im2=np.random.rand(15,15)
+    plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1,'im2':im2})
     

@@ -41,7 +41,7 @@ class Segmenter(object):
             
     def apply(self,img, keepLargest=True):
         assert img.ndim==3, 'Image dimension should be 3, is %r'%img.ndim
-        assert img.shape[-1]==self.xdepth, 'Image depth %r does not match network input depth %r'%(img.shape[-1],self.xdepth)
+        assert img.shape[-1]==self.xdepth, 'Input image depth %r does not match network input depth %r'%(img.shape[-1],self.xdepth)
         
         result=np.zeros(img.shape[:-1])
         imin=img.min()

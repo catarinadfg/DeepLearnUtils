@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 from segmenter import Segmenter
-from trainimagesource import rescaleArray
+from trainutils import rescaleArray
 
 
 def applySegmentation(metafilename,img,device='/gpu:0',conf=None):
