@@ -3,6 +3,7 @@ from __future__ import division, print_function
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib.ticker import MaxNLocator
 
 
 def rescaleArray(arr,minv=0.0,maxv=1.0):
@@ -70,21 +71,25 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log'):
     numimages=len(imagemap)
     
     fig = plt.figure(figsize=(20,10))
-    gs = gridspec.GridSpec(2,numimages,height_ratios=[1, 3],wspace=0.1, hspace=0.05)
+    gs = gridspec.GridSpec(2,numimages,height_ratios=[1, 3],wspace=0.02, hspace=0.05)
     
     graph=plt.subplot(gs[0,:])
+    
+    for n,v in graphmap.items():
+        graph.plot(v,label='%s = %.3f '%(n,v[-1]))
+
     graph.set_title(graphtitle)
     graph.set_yscale(yscale)
     graph.axis('on')
-    
-    for n,v in graphmap.items():
-        graph.plot(v,label=n)
+    graph.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+    graph.grid()
+    graph.xaxis.set_major_locator(MaxNLocator(integer=True))
     
     ims=[]
-    for i,n in enumerate(sorted(imagemap)):
+    for i,n in enumerate(imagemap):
         im=plt.subplot(gs[1,i])
         im.imshow(np.squeeze(imagemap[n]),cmap='gray')
-        im.set_title(n)
+        im.set_title('%s = %.3f -> %.3f'%(n,imagemap[n].min(),imagemap[n].max()))
         im.axis('off')
         ims.append(im)
         
