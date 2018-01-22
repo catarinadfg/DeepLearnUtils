@@ -15,7 +15,11 @@ except:
 
 
 def averageGradients(tower_grads):
-    average_grads = []
+    '''
+    Given the gradients `towergrads' from each computation tower, return the averaged gradient for each variable.
+    This is a condensed version of the function in the tutorials on multi-GPU training.
+    '''
+    avggrads = []
     # each grad_and_vars looks like ((grad0_gpu0, var0_gpu0), ... , (grad0_gpuN, var0_gpuN))
     for grad_and_vars in zip(*tower_grads):
         grads=[tf.expand_dims(g, 0) for g,_ in grad_and_vars if g is not None]
@@ -25,11 +29,12 @@ def averageGradients(tower_grads):
         grad=tf.reduce_mean(grad, 0) 
 
         # variables are shared across towers, need only return first tower's variable refs
-        average_grads.append((grad,grad_and_vars[0][1]))
-    return average_grads
+        avggrads.append((grad,grad_and_vars[0][1]))
+    return avggrads
 
 
 def binaryMaskDiceLoss(logits, labels, smooth=1e-5):
+    '''Return the binary mask dice loss between the given logits and labels.'''
     axis = list(range(1, logits.shape.ndims - 1))
     logits=tf.cast(logits,tf.float32)
     labels=tf.cast(labels,tf.float32)
@@ -45,12 +50,16 @@ def binaryMaskDiceLoss(logits, labels, smooth=1e-5):
 
 
 class GraphImageHook(tf.train.SessionRunHook):
+    '''
+    This hook keeps track of the nominated scalar and image values. This is used to output graphed histories of the scalars
+    with the images during training. For each named scalar value a history of values is stored along with a rolling average.    
+    '''
     def __init__(self, fetches,graphnames,imagenames):
         self.fetches = fetches
         self.graphnames=graphnames
-        self.graphvalues=collections.OrderedDict([(n,[]) for n in graphnames]+[(n+' Avg',[]) for n in graphnames])
         self.imagenames=imagenames
         self.avgLength=50
+        self.graphvalues=collections.OrderedDict([(n,[]) for n in graphnames]+[(n+' Avg',[]) for n in graphnames])
         self.images={}
         
     def before_run(self, run_context):
@@ -88,9 +97,10 @@ class BinarySegmentNN(tf.estimator.Estimator):
         self.logfilename='train.log'
         self.logqueue=queue.Queue()
         self.logthread=None
+        self.dologging=True
         
         def _printlog():
-            while True:
+            while self.dologging:
                 time.sleep(0.1)
                 if os.path.isdir(self.savedir): # directory won't appear until training starts, defer writing log file until then
                     with open(os.path.join(self.savedir,self.logfilename),'a') as o:
@@ -111,11 +121,17 @@ class BinarySegmentNN(tf.estimator.Estimator):
         
     def log(self,*items):
         dt=datetime.datetime.now().strftime('%Y%m%d-%H:%M:%S: ')
-        self.logqueue.put(dt+' '.join(map(str,items)))
+        msg=dt+' '.join(map(str,items))
+        self.logqueue.put(msg)
+        tf.logging.info(msg)
+        
+    def closeLog(self):
+        self.dologging=False
+        self.logthread.join()
 
     def _modelfn(self,features, labels, mode, params):
         global_step = tf.train.get_global_step()
-        self.opt = tf.train.AdamOptimizer(learning_rate=params.get('learning_rate',1e-3),epsilon=1e-5)
+        self.opt = tf.train.AdamOptimizer(params.get('learningRate',1e-3),epsilon=1e-5)
         
         try:
             self.imgs=features.values()[0]
@@ -145,13 +161,13 @@ class BinarySegmentNN(tf.estimator.Estimator):
                 tf.add_to_collection('endpoints',self.loss)
 
                 self.summaries.clear()
-                self.summaries['imgs'] = self.imgs[0, 0, :, :, 0]
+                self.summaries['imgs'] = self.imgs[0, 0, :, :]
                 self.summaries['masks'] = tf.cast(self.masks, tf.float32)[0, 0, :, :]
                 self.summaries['logits'] = self.logits[0, 0, :, :,0]
                 self.summaries['preds'] = tf.cast(self.preds, tf.float32)[0, 0, :, :]
                 
                 for name, image in self.summaries.items():
-                    shape=[1,image.shape[0],image.shape[1],1]
+                    shape=[1,image.shape[0],image.shape[1],1 if len(image.shape)<3 else image.shape[2]]
                     tf.summary.image(name, tf.reshape(image, shape))
             
                 self.summaries['loss']=self.loss

@@ -24,7 +24,7 @@ def inBounds(x,y,margin,maxx,maxy):
     
 def zeroMargins(img,margin):
     '''Returns True if the values within `margin' indices of the edges of `img' are 0.'''
-    return not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
+    return np.any(img>img.min()) and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
 
 
 def shiftAugment(img,mask,margin=5):
@@ -53,7 +53,7 @@ def rotateAugment(img,mask,margin=5):
     return rotate(img,angle,reshape=False),rotate(mask,angle,reshape=False)
     
     
-def zoomAugment(img,mask,margin=5,zoomrange=0.5):
+def zoomAugment(img,mask,margin=5,zoomrange=0.25):
     def _copyzoom(im,zx,zy):
         temp=np.zeros_like(im)
         ztemp=zoom(im,(zx,zy)+tuple(1 for _ in range(2,im.ndim)),order=2)
@@ -73,8 +73,9 @@ def zoomAugment(img,mask,margin=5,zoomrange=0.5):
     zy=None
     
     while tempmask is None or not zeroMargins(tempmask.astype(np.int),margin):
-        zx=1.0+zoomrange-random.random()*zoomrange*2
-        zy=1.0+zoomrange-random.random()*zoomrange*2
+        z=zoomrange-random.random()*zoomrange*2
+        zx=z+1.0+zoomrange*0.25-random.random()*zoomrange*0.5
+        zy=z+1.0+zoomrange*0.25-random.random()*zoomrange*0.5
         tempmask=_copyzoom(mask,zx,zy)
         
     return _copyzoom(img,zx,zy),tempmask

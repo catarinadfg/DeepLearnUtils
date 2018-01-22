@@ -9,7 +9,7 @@ same way to produce single-frame input stacks from time-dependent stacks. The re
 from that in segclient.py to account for this.
 '''
 from __future__ import division, print_function
-from eidolon import ImageSceneObject, processImageNp, first, rescaleArray, calculateMotionROI, calculateBinaryMaskBox
+from eidolon import ImageSceneObject, processImageNp, first, rescaleArray, calculateMotionField
 import io
 import mimetools
 import mimetypes
@@ -26,7 +26,7 @@ except:
 mgr=mgr # pylint:disable=invalid-name,used-before-assignment
 
 # the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
-localurl=locals().get('url','http://bioeng187-pc:5000/segment/dltk')
+localurl=locals().get('url','http://bioeng187-pc:5000/segment/model.ckpt-14228')
 
 
 def encodeMultipartFormdata(fields, files):
@@ -56,7 +56,7 @@ def encodeMultipartFormdata(fields, files):
 def processImage(obj):
     with processImageNp(obj,False) as imat:
         mag=rescaleArray(imat[...,0])
-        motion=rescaleArray(calculateMotionROI(obj)[0])
+        motion=rescaleArray(calculateMotionField(obj))
         edge=rescaleArray(ndimage.generic_gradient_magnitude(mag,ndimage.sobel))
         
         return mag,motion,edge
@@ -105,7 +105,9 @@ else:
     
     combined=np.stack([mag,motion,edge],axis=-1)
     
-    minx,miny,maxx,maxy=calculateBinaryMaskBox(mag)
+    #minx,miny,maxx,maxy=calculateBinaryMaskBox(mag)
+    inds=ndimage.find_objects(mag.astype(int))[0]
+    minx,miny,maxx,maxy=inds[0].start, inds[1].start, inds[0].stop, inds[1].stop
     
     combined[miny:maxy,minx:maxx]=0
     

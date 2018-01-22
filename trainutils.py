@@ -67,10 +67,15 @@ def viewImages(img,mask,maskval=0.25):
     setattr(p.parent(),'keyPressEvent',_keypress)
     
 
-def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log'):
+def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     numimages=len(imagemap)
+    assert numimages>0
     
-    fig = plt.figure(figsize=(20,10))
+    if fig:
+        fig.clf()
+    else:
+        fig = plt.figure(figsize=(20,10))
+    
     gs = gridspec.GridSpec(2,numimages,height_ratios=[1, 3],wspace=0.02, hspace=0.05)
     
     graph=plt.subplot(gs[0,:])
