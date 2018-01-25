@@ -109,7 +109,7 @@ class TrainImageSource(object):
         assert images.shape[1:3]==masks.shape[1:3],'%r != %r'%(images.shape[1:3],masks.shape[1:3])
         self.images=images
         self.masks=masks
-        self.indices=range(self.images.shape[0])
+        self.indices=list(range(self.images.shape[0]))
         self.imgshape=list(self.images.shape)[1:3]
         self.augments=list(augments)
         self.channels=1 if self.images.ndim==3 else self.images.shape[3]

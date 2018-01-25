@@ -8,6 +8,6 @@ SAX=/home/localek10/data/Projs/SAXSegment/sax-20180119145547/model.ckpt-14228.me
 # restricts the server to using only device 1, this is more effective than using tf.device() it seems, comment if you don't want to use device 1
 export CUDA_VISIBLE_DEVICES=1
 
-nohup $HOME/anaconda2/bin/python segserv.py $REALTIME $SAX 2> segserv.log &
+nohup $HOME/anaconda2/bin/python segserv.py realtime:$REALTIME sax:$SAX 2> segserv.log &
 
 echo $! > pid.log

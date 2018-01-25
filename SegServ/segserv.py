@@ -47,7 +47,7 @@ if __name__=='__main__':
     tf.logging.set_verbosity(tf.logging.INFO)
     
     parser=argparse.ArgumentParser('SegServ.py')
-    parser.add_argument('metafilename',help='Path to a Tensorflow meta graph file',nargs='+')
+    parser.add_argument('metafilename',help='Named path to a Tensorflow meta graph file in the form "name:path"',nargs='+')
     parser.add_argument('--host',help='Server host address',default='0.0.0.0')
     parser.add_argument('--port',help='Post to listen on',type=int,default=5000)
     parser.add_argument('--device',help='Tensorflow device name to compute on',default='/gpu:0')
@@ -59,9 +59,10 @@ if __name__=='__main__':
         
     segmap['echo']=EchoSegmenter() # add a "segmenter" which simply returns the first channel of any input image
     
-    for name in args.metafilename:
-        n=os.path.splitext(os.path.basename(name))[0]
-        segmap[n]=Segmenter(name,args.device)
+    for namepath in args.metafilename:
+        #n=os.path.splitext(os.path.basename(name))[0]
+        name,path=namepath.split(':')
+        segmap[name]=Segmenter(path,args.device)
         
     tf.logging.info('Running server using device %r with networks %r'%(args.device,segmap.keys()))
     app.run(host=args.host,port=args.port)

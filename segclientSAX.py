@@ -26,7 +26,7 @@ except:
 mgr=mgr # pylint:disable=invalid-name,used-before-assignment
 
 # the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
-localurl=locals().get('url','http://bioeng187-pc:5000/segment/model.ckpt-14228')
+localurl=locals().get('url','http://bioeng187-pc:5000/segment/sax')
 
 
 def encodeMultipartFormdata(fields, files):
