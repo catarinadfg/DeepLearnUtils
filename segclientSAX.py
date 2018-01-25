@@ -11,8 +11,6 @@ from that in segclient.py to account for this.
 from __future__ import division, print_function
 from eidolon import ImageSceneObject, processImageNp, first, rescaleArray, calculateMotionField
 import io
-import mimetools
-import mimetypes
 import urllib2
 
 import numpy as np
@@ -27,30 +25,6 @@ mgr=mgr # pylint:disable=invalid-name,used-before-assignment
 
 # the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
 localurl=locals().get('url','http://bioeng187-pc:5000/segment/sax')
-
-
-def encodeMultipartFormdata(fields, files):
-    '''
-    Create a multipart form for POST requests needed to send files through HTTP. The `fields' dictionay maps field names
-    to values to send. The `files' dictionary maps field names to (filename, data-string) pairs for files to send with 
-    the form. Returns a pair (headers, body) containing the name-value header dictionary and form body string.
-    '''
-    boundary = mimetools.choose_boundary()
-    bstr='--%s'%boundary
-    lines = []
-
-    for key, value in fields.items():
-        lines += [bstr, 'Content-Disposition: form-data; name="%s"' % key, '', value]
-
-    for key, (filename, data) in files.items():
-        mimetype = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-        contentdisp='Content-Disposition: form-data; name="%s"; filename="%s"' % (key, filename)
-        lines += [bstr, contentdisp,'Content-Type: %s' % mimetype, '', data]
-
-    body = '\r\n'.join(lines+['%s--'%bstr, ''])
-    headers = {'Content-Type': 'multipart/form-data; boundary=%s'%boundary, 'Content-Length': str(len(body))}
-    
-    return headers, body
 
 
 def processImage(obj):
@@ -79,13 +53,7 @@ def requestSeg(inmat,outmat,url):
             imwrite(stream,img*255,format='png') # encode image as png
             stream.seek(0)
 
-            headers,body=encodeMultipartFormdata({'keepLargest':'true'},{'image':('image.png',stream.read())})
-            request = urllib2.Request(url)
-            request.add_data(body)
-            
-            for k,v in headers.items():
-                request.add_header(k,v)
-            
+            request = urllib2.Request(url+'?keepLargest=true',stream.read(),{'Content-Type':'image/png'})
             req=urllib2.urlopen(request)
             
             if req.code==200: 

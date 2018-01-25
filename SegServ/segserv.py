@@ -1,4 +1,6 @@
-
+'''
+A simple Flask-based server for providing segmentation inference through an HTTP interface. 
+'''
 from __future__ import division, print_function
 import sys, os, io, argparse
 
@@ -25,10 +27,9 @@ segmap={}
 @app.route('/segment/<name>', methods=['POST'])
 def segment(name):
     segobj=segmap[name]
-    keepLargest=request.form.get('keepLargest','true').lower()=='true'
-    img = request.files['image']
+    keepLargest=request.args.get('keepLargest','true').lower()=='true'
     
-    imgmat=imread(img.stream) # read posted image file to matrix
+    imgmat=imread(request.data) # read posted image file to matrix
     imgmat=rescaleArray(imgmat) # input images are expected to be normalized
     
     if imgmat.ndim==2: # extend a (W,H) stack to be (W,H,C) with a single channel
