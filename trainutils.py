@@ -74,9 +74,9 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     if fig:
         fig.clf()
     else:
-        fig = plt.figure(figsize=(20,10))
+        fig = plt.figure(figsize=(20,14))
     
-    gs = gridspec.GridSpec(2,numimages,height_ratios=[1, 3],wspace=0.02, hspace=0.05)
+    gs = gridspec.GridSpec(2,numimages,height_ratios=[2, 3],wspace=0.02, hspace=0.05)
     
     graph=plt.subplot(gs[0,:])
     
@@ -87,7 +87,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     graph.set_yscale(yscale)
     graph.axis('on')
     graph.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-    graph.grid()
+    graph.grid(True,'both')
     graph.xaxis.set_major_locator(MaxNLocator(integer=True))
     
     ims=[]
