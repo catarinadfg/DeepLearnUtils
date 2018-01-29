@@ -72,7 +72,8 @@ class Segmenter(object):
                 maxfeature=np.where(sums==max(sums)) # choose the maximum sum whose index will be the label number
                 pred=pred*(labeled==maxfeature) # mask out the prediction under the largest label
             
-            result[w2-wmin:w2+wmin,h2-hmin:h2+hmin]=pred
+            
+            result[w2-wmin:w2+wmin,h2-hmin:h2+hmin]=pred[self.xw2-wmin:self.xw2+wmin,self.xh2-hmin:self.xh2+hmin]
             
         return result
     
