@@ -161,10 +161,10 @@ class BinarySegmentNN(tf.estimator.Estimator):
                 tf.add_to_collection('endpoints',self.loss)
 
                 self.summaries.clear()
-                self.summaries['imgs'] = self.imgs[0, 0, :, :]
-                self.summaries['masks'] = tf.cast(self.masks, tf.float32)[0, 0, :, :]
-                self.summaries['logits'] = self.logits[0, 0, :, :,0]
-                self.summaries['preds'] = tf.cast(self.preds, tf.float32)[0, 0, :, :]
+                self.summaries['imgs'] = self.imgs[0, ..., :, :]
+                self.summaries['masks'] = tf.cast(self.masks, tf.float32)[0, ..., :, :]
+                self.summaries['logits'] = self.logits[0, ..., :, :,0]
+                self.summaries['preds'] = tf.cast(self.preds, tf.float32)[0, ..., :, :]
                 
                 for name, image in self.summaries.items():
                     shape=[1,image.shape[0],image.shape[1],1 if len(image.shape)<3 else image.shape[2]]
