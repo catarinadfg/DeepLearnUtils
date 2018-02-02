@@ -42,7 +42,7 @@ def residualUnit2D(x,outchannels,strides=1,kernelsize=3,numSubunits=1,isTraining
             convstrides=(1,1) # only allow first subunit to stride down
             
     with tf.variable_scope('ResAdd'):
-        if np.prod(strides) != 1: # if x is strided down, apply max pooling to make addx match
+        if any(s!=1 for s in strides): # if x is strided down, apply max pooling to make addx match
             addx=maxpool2d(addx,strides,strides,'same')
     
         return x+setChannels2D(addx,outchannels)
@@ -52,22 +52,6 @@ def unet2D(x,numClasses,channels,strides,kernelsize=3,numSubunits=1,isTraining=T
     assert len(channels)==len(strides)
     assert numClasses>0
     assert len(x.get_shape())==4
-    
-#    encodelist=[] # list of encoding stages
-#    
-#    # encoding stages
-#    for c,s in zip(channels,strides):
-#        with tf.variable_scope('Encode%i'%len(encodelist)):
-#            encodelist.insert(0,(len(encodelist),x,c,s))
-#            x=residualUnit2D(x,c,s,kernelsize,numSubunits,isTraining)
-#            
-#    encodelist=[(encodelist[i-1][0],encodelist[i][1],encodelist[i-1][2]encodelist[i][3]) for i range(1,len(encodelist))]
-#            
-#    #decoding stages
-#    for i,addx,c,s in encodelist:
-#        with tf.variable_scope('Decode%i'%i):
-#            x=upsampleConcat2D(x,addx,s)
-#            x=residualUnit2D(x,c,1,kernelsize,numSubunits,isTraining)
 
     dchannels=[numClasses]+list(channels[:-1])
     
