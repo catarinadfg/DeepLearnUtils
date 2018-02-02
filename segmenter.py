@@ -29,19 +29,21 @@ class Segmenter(object):
                 tf.logging.info('Retrieving endpoints')
                 self.x,_,self.y,self.ypred=tf.get_collection('endpoints')[:4] 
                 
-                self.xwidth,self.xheight,self.xdepth=self.x.get_shape().as_list()[2:] # image dimensions
+                xshape=self.x.get_shape().as_list() # (BDHWC) or (BHWC)
                 
-                tf.logging.info('Graph input dimensions: %r'%((self.xwidth,self.xheight,self.xdepth),))
+                self.xwidth,self.xheight,self.xchannels=xshape[2 if len(xshape)==5 else 1:] # image dimensions
+                    
+                tf.logging.info('Graph input dimensions: %r'%((self.xwidth,self.xheight,self.xchannels),))
             
                 self.xw2=self.xwidth//2
                 self.xh2=self.xheight//2
                 
-                self.tempimg=np.ndarray((1,1,self.xwidth,self.xheight,self.xdepth))
+                self.tempimg=np.ndarray(((1,1) if len(xshape)==5 else (1,))+(self.xwidth,self.xheight,self.xchannels))
                 self.feeddict={self.x:self.tempimg}
             
     def apply(self,img, keepLargest=True):
         assert img.ndim==3, 'Image dimension should be 3, is %r'%img.ndim
-        assert img.shape[-1]==self.xdepth, 'Input image depth %r does not match network input depth %r'%(img.shape[-1],self.xdepth)
+        assert img.shape[-1]==self.xchannels, 'Input image channels %r does not match network input channels %r'%(img.shape[-1],self.xchannels)
         
         result=np.zeros(img.shape[:-1])
         imin=img.min()
@@ -49,7 +51,7 @@ class Segmenter(object):
         
         if imax>imin:
             tf.logging.info('Segmenting image of dimensions %r on device %r'%(img.shape,self.device))
-            img=(img-imin)/(imax-imin) # normalize image
+            #img=(img-imin)/(imax-imin) # normalize image
             width,height,depth=img.shape
         
             w2=width//2
@@ -58,10 +60,10 @@ class Segmenter(object):
             hmin=min(h2,self.xh2)
             
             st=img[w2-wmin:w2+wmin,h2-hmin:h2+hmin]
-            self.tempimg[0,0,self.xw2-wmin:self.xw2+wmin,self.xh2-hmin:self.xh2+hmin,:]=st
+            self.tempimg[...,self.xw2-wmin:self.xw2+wmin,self.xh2-hmin:self.xh2+hmin,:]=st
         
             pred=self.sess.run(self.ypred,feed_dict=self.feeddict)
-            pred=pred[0,0]
+            pred=pred[0,0] if pred.ndim==4 else pred[0]
             
             tf.logging.info('Segment size: %r'%np.sum(pred))
             

@@ -1,6 +1,7 @@
 
 from __future__ import division, print_function
 import tensorflow as tf
+from numpy import prod
 
 
 conv2dtranspose=tf.layers.conv2d_transpose
@@ -42,7 +43,7 @@ def residualUnit2D(x,outchannels,strides=1,kernelsize=3,numSubunits=1,isTraining
             convstrides=(1,1) # only allow first subunit to stride down
             
     with tf.variable_scope('ResAdd'):
-        if any(s!=1 for s in strides): # if x is strided down, apply max pooling to make addx match
+        if prod(strides)!=1: # if x is strided down, apply max pooling to make addx match
             addx=maxpool2d(addx,strides,strides,'same')
     
         return x+setChannels2D(addx,outchannels)
