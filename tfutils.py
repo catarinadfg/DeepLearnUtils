@@ -4,8 +4,8 @@ import tensorflow as tf
 import numpy as np
 import os
 import datetime
-import threading
-import time
+#import threading
+#import time
 import collections
 
 try:
@@ -95,17 +95,18 @@ class BinarySegmentNN(tf.estimator.Estimator):
         self.summaries={}
         
         self.logfilename='train.log'
-        self.logqueue=queue.Queue()
-        self.logthread=None
-        self.dologging=True
+        self.logqueue=[]
+#        self.logqueue=queue.Queue()
+#        self.logthread=None
+#        self.dologging=True
         
-        def _printlog():
-            while self.dologging:
-                time.sleep(0.1)
-                if os.path.isdir(self.savedir): # directory won't appear until training starts, defer writing log file until then
-                    with open(os.path.join(self.savedir,self.logfilename),'a') as o:
-                        while not self.logqueue.empty():
-                            o.write(self.logqueue.get()+'\n')
+#        def _printlog():
+#            while self.dologging:
+#                time.sleep(0.1)
+#                if os.path.isdir(self.savedir): # directory won't appear until training starts, defer writing log file until then
+#                    with open(os.path.join(self.savedir,self.logfilename),'a') as o:
+#                        while not self.logqueue.empty():
+#                            o.write(self.logqueue.get()+'\n')
 
         if savedirprefix:
             if os.path.exists(savedirprefix):
@@ -113,21 +114,33 @@ class BinarySegmentNN(tf.estimator.Estimator):
             else:
                 self.savedir='%s-%s'%(savedirprefix,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
                 
-            self.logthread=threading.Thread(target=_printlog)
-            self.logthread.daemon=True
-            self.logthread.start()
+#            self.logthread=threading.Thread(target=_printlog)
+#            self.logthread.daemon=True
+#            self.logthread.start()
 
         tf.estimator.Estimator.__init__(self, model_fn=self._modelfn, model_dir=self.savedir,params=params, config=self.runconf)
         
     def log(self,*items):
         dt=datetime.datetime.now().strftime('%Y%m%d-%H:%M:%S: ')
         msg=dt+' '.join(map(str,items))
-        self.logqueue.put(msg)
-        tf.logging.info(msg)
+        self.logqueue.append(msg)
         
-    def closeLog(self):
-        self.dologging=False
-        self.logthread.join()
+        if os.path.isdir(self.savedir):
+            with open(os.path.join(self.savedir,self.logfilename),'a') as o:
+                o.write('\n'.join(self.logqueue)+'\n')
+            self.logqueue=[]
+            
+#        self.logqueue.put(msg)
+#        tf.logging.info(msg)
+        
+#    def closeLog(self):
+#        # wait for the log queue to clear out
+#        while os.path.isdir(self.savedir) and not self.logqueue.empty():
+#            time.sleep(0.1)
+#            
+#        self.dologging=False
+#        self.logthread.join()
+        
 
     def _modelfn(self,features, labels, mode, params):
         global_step = tf.train.get_global_step()

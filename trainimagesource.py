@@ -2,6 +2,8 @@
 
 from __future__ import division, print_function
 import random
+import threading
+import multiprocessing
 
 import numpy as np
 from scipy.ndimage import shift,zoom,rotate
@@ -105,10 +107,11 @@ def rot90Augment(img,mask):
     
     
 class TrainImageSource(object):
-    def __init__(self,images,masks,augments=[]):
-        assert images.shape[1:3]==masks.shape[1:3],'%r != %r'%(images.shape[1:3],masks.shape[1:3])
+    def __init__(self,images,masks,augments=[],numthreads=None):
+        assert images.shape[:3]==masks.shape[:3],'%r != %r'%(images.shape[:3],masks.shape[:3])
         self.images=images
         self.masks=masks
+        self.numthreads=numthreads
         self.indices=list(range(self.images.shape[0]))
         self.imgshape=list(self.images.shape)[1:3]
         self.augments=list(augments)
@@ -118,19 +121,34 @@ class TrainImageSource(object):
         shape=[numimgs]+self.imgshape
         imgout=np.ndarray(shape+[self.channels],float)
         maskout=np.ndarray(shape+[1],float)
-        
-        for n in range(numimgs):
-            randomindex=random.choice(self.indices)
-            img=self.images[randomindex,...]
-            mask=self.masks[randomindex,...]
+        numthreads=self.numthreads or min(numimgs,multiprocessing.cpu_count())
+        threads=[]
+
+        def _generateForIndices(indices):
+            for n in indices:
+                img,mask=self._generateImageMask()
+                imgout[n,...]=np.stack([img],axis=-1) if img.ndim==2 else img
+                maskout[n,...,0]=mask
+                
+        for indices in np.array_split(np.arange(numimgs),numthreads):
+            t=threading.Thread(target=_generateForIndices,args=(indices,))
+            t.start()
+            threads.append(t)
             
-            # apply each augment to the image and mask, giving each a 50% chance of being used
-            for aug in self.augments:
-                if randChoice():
-                    img,mask=aug(img,mask)
-                    
-            imgout[n,...]=np.stack([img],axis=-1) if img.ndim==2 else img
-            maskout[n,...,0]=mask
+        for t in threads:
+            t.join()
         
         return imgout,maskout
+    
+    def _generateImageMask(self):
+        randomindex=random.choice(self.indices)
+        img=self.images[randomindex,...]
+        mask=self.masks[randomindex,...]
+        
+        # apply each augment to the image and mask, giving each a 50% chance of being used
+        for aug in self.augments:
+            if randChoice():
+                img,mask=aug(img,mask)
+                    
+        return img,mask
     
