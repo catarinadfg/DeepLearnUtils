@@ -87,14 +87,14 @@ def transposeAugment(img,mask):
     return np.swapaxes(img,0,1),mask.T
 
 
-def flipAugment(img,mask):
+def flipAugment(img,out):
     if randChoice():
-        return np.fliplr(img),np.fliplr(mask)
+        return np.fliplr(img),np.fliplr(out)
     else:
-        return np.flipud(img),np.flipud(mask)
+        return np.flipud(img),np.flipud(out)
         
         
-def rot90Augment(img,mask):
+def rot90Augment(img,out):
     r=random.random()
     if r<0.33333:
         num=1
@@ -103,32 +103,31 @@ def rot90Augment(img,mask):
     else:
         num=3
         
-    return np.rot90(img,num),np.rot90(mask,num)
+    return np.rot90(img,num),np.rot90(out,num)
     
     
 class TrainImageSource(object):
-    def __init__(self,images,masks,augments=[],numthreads=None):
-        assert images.shape[:3]==masks.shape[:3],'%r != %r'%(images.shape[:3],masks.shape[:3])
+    def __init__(self,images,outputs,augments=[],numthreads=None,randomizeAugs=True):
+        assert images.shape[:3]==outputs.shape[:3],'%r != %r'%(images.shape[:3],outputs.shape[:3])
+        
         self.images=images
-        self.masks=masks
+        self.outputs=outputs
         self.numthreads=numthreads
+        self.randomizeAugs=randomizeAugs
         self.indices=list(range(self.images.shape[0]))
-        self.imgshape=list(self.images.shape)[1:3]
+        self.imgshape=list(self.images.shape)[1:]
+        self.outshape=list(self.outputs.shape)[1:]
         self.augments=list(augments)
-        self.channels=1 if self.images.ndim==3 else self.images.shape[3]
         
     def getBatch(self,numimgs):
-        shape=[numimgs]+self.imgshape
-        imgout=np.ndarray(shape+[self.channels],float)
-        maskout=np.ndarray(shape+[1],float)
+        imgs=np.ndarray([numimgs]+self.imgshape,self.images.dtype)
+        outs=np.ndarray([numimgs]+self.outshape,self.outputs.dtype)
         numthreads=min(numimgs,self.numthreads or multiprocessing.cpu_count())
         threads=[]
 
         def _generateForIndices(indices):
             for n in indices:
-                img,mask=self._generateImageMask()
-                imgout[n,...]=np.stack([img],axis=-1) if img.ndim==2 else img
-                maskout[n,...,0]=mask
+                imgs[n],outs[n]=self._generateImageMask()
                 
         for indices in np.array_split(np.arange(numimgs),numthreads):
             t=threading.Thread(target=_generateForIndices,args=(indices,))
@@ -138,17 +137,17 @@ class TrainImageSource(object):
         for t in threads:
             t.join()
         
-        return imgout,maskout
+        return imgs,outs
     
     def _generateImageMask(self):
         randomindex=random.choice(self.indices)
-        img=self.images[randomindex,...]
-        mask=self.masks[randomindex,...]
+        img=self.images[randomindex]
+        out=self.outputs[randomindex]
         
-        # apply each augment to the image and mask, giving each a 50% chance of being used
+        # apply each augment to the image and mask, giving each a 50% chance of being used if self.randomizeAugs is True
         for aug in self.augments:
-            if randChoice():
-                img,mask=aug(img,mask)
+            if not self.randomizeAugs or randChoice():
+                img,out=aug(img,out)
                     
-        return img,mask
+        return img,out
     

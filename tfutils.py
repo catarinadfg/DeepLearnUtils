@@ -4,14 +4,7 @@ import tensorflow as tf
 import numpy as np
 import os
 import datetime
-#import threading
-#import time
 import collections
-
-try:
-    import Queue as queue
-except:
-    import queue
 
 
 def averageGradients(tower_grads):
@@ -80,6 +73,93 @@ class GraphImageHook(tf.train.SessionRunHook):
     def update(self):
         pass
 
+
+class BaseEstimator(tf.estimator.Estimator):
+    def __init__(self,savedirprefix=None,runconf=None,params={}):
+        self.savedir=None
+        self.loss=None
+        self.opt=None
+        self.trainop=None
+        self.net=None
+        self.features=None
+        self.runconf=runconf
+        self.summaries={}
+        
+        self.logfilename='train.log'
+        self.logqueue=[]
+
+        if savedirprefix:
+            if os.path.exists(savedirprefix):
+                self.savedir=savedirprefix
+            else:
+                self.savedir='%s-%s'%(savedirprefix,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
+                
+        tf.estimator.Estimator.__init__(self, model_fn=self._modelfn, model_dir=self.savedir,params=params, config=self.runconf)
+        
+    def log(self,*items):
+        dt=datetime.datetime.now().strftime('%Y%m%d-%H:%M:%S: ')
+        msg=dt+' '.join(map(str,items))
+        self.logqueue.append(msg)
+        
+        if os.path.isdir(self.savedir):
+            with open(os.path.join(self.savedir,self.logfilename),'a') as o:
+                o.write('\n'.join(self.logqueue)+'\n')
+            self.logqueue=[]
+
+    def _modelfn(self,features, labels, mode, params):
+        
+        self.createOptimizer(mode,params)
+        self.createNetwork(features,labels,mode,params)
+
+        with tf.variable_scope(tf.get_variable_scope(),reuse=tf.AUTO_REUSE):
+            if mode == tf.estimator.ModeKeys.PREDICT:
+                outs={'out': tf.estimator.export.PredictOutput(self.net)}
+                return tf.estimator.EstimatorSpec( mode=mode, predictions=self.net, export_outputs=outs)
+            else:
+#                self.loss=binaryMaskDiceLoss(self.logits,self.masks)
+
+                update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+                with tf.control_dependencies(update_ops):
+#                    global_step = tf.train.get_global_step()
+#                    self.trainop=self.opt.minimize(self.loss, global_step=global_step)
+                    self.createTrainOp(mode,params)
+
+#                tf.add_to_collection('endpoints',self.imgs)
+#                tf.add_to_collection('endpoints',self.masks)
+#                tf.add_to_collection('endpoints',self.logits)
+#                tf.add_to_collection('endpoints',self.preds)
+#                tf.add_to_collection('endpoints',self.trainop)
+#                tf.add_to_collection('endpoints',self.loss)
+#
+#                self.summaries.clear()
+#                self.summaries['imgs'] = self.imgs[0, ..., :, :]
+#                self.summaries['masks'] = tf.cast(self.masks, tf.float32)[0, ..., :, :]
+#                self.summaries['logits'] = self.logits[0, ..., :, :,0]
+#                self.summaries['preds'] = tf.cast(self.preds, tf.float32)[0, ..., :, :]
+
+                self.createSummaries(mode,params)
+                
+                for name, image in self.summaries.items():
+                    shape=[1,image.shape[0],image.shape[1],1 if len(image.shape)<3 else image.shape[2]]
+                    tf.summary.image(name, tf.reshape(image, shape))
+            
+                self.summaries['loss']=self.loss
+                tf.summary.scalar('loss',self.loss)
+
+                return tf.estimator.EstimatorSpec(mode=mode, predictions=self.net, loss=self.loss, train_op=self.trainop, eval_metric_ops=None)
+        
+    def createOptimizer(self,mode,params):
+        self.opt = tf.train.AdamOptimizer(params.get('learningRate',1e-3),epsilon=1e-5)
+        
+    def createNetwork(self,features,labels,mode,params):
+        pass
+    
+    def createTrainOp(self,mode,params):
+        pass
+    
+    def createSummaries(self,mode,params):
+        pass
+    
 
 class BinarySegmentNN(tf.estimator.Estimator):
     def __init__(self,savedirprefix=None,runconf=None,params={}):
