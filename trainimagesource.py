@@ -55,7 +55,7 @@ def rotateAugment(img,mask,margin=5):
     return rotate(img,angle,reshape=False),rotate(mask,angle,reshape=False)
     
     
-def zoomAugment(img,mask,margin=5,zoomrange=0.25):
+def zoomAugment(img,mask,margin=5,zoomrange=0.2):
     def _copyzoom(im,zx,zy):
         temp=np.zeros_like(im)
         ztemp=zoom(im,(zx,zy)+tuple(1 for _ in range(2,im.ndim)),order=2)
@@ -121,7 +121,7 @@ class TrainImageSource(object):
         shape=[numimgs]+self.imgshape
         imgout=np.ndarray(shape+[self.channels],float)
         maskout=np.ndarray(shape+[1],float)
-        numthreads=self.numthreads or min(numimgs,multiprocessing.cpu_count())
+        numthreads=min(numimgs,self.numthreads or multiprocessing.cpu_count())
         threads=[]
 
         def _generateForIndices(indices):
