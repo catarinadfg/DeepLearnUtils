@@ -81,7 +81,6 @@ class BaseEstimator(tf.estimator.Estimator):
         self.opt=None
         self.trainop=None
         self.net=None
-        self.features=None
         self.runconf=runconf
         self.summaries={}
         
@@ -107,7 +106,6 @@ class BaseEstimator(tf.estimator.Estimator):
             self.logqueue=[]
 
     def _modelfn(self,features, labels, mode, params):
-        
         self.createOptimizer(mode,params)
         self.createNetwork(features,labels,mode,params)
 
@@ -116,26 +114,9 @@ class BaseEstimator(tf.estimator.Estimator):
                 outs={'out': tf.estimator.export.PredictOutput(self.net)}
                 return tf.estimator.EstimatorSpec( mode=mode, predictions=self.net, export_outputs=outs)
             else:
-#                self.loss=binaryMaskDiceLoss(self.logits,self.masks)
-
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
                 with tf.control_dependencies(update_ops):
-#                    global_step = tf.train.get_global_step()
-#                    self.trainop=self.opt.minimize(self.loss, global_step=global_step)
                     self.createTrainOp(mode,params)
-
-#                tf.add_to_collection('endpoints',self.imgs)
-#                tf.add_to_collection('endpoints',self.masks)
-#                tf.add_to_collection('endpoints',self.logits)
-#                tf.add_to_collection('endpoints',self.preds)
-#                tf.add_to_collection('endpoints',self.trainop)
-#                tf.add_to_collection('endpoints',self.loss)
-#
-#                self.summaries.clear()
-#                self.summaries['imgs'] = self.imgs[0, ..., :, :]
-#                self.summaries['masks'] = tf.cast(self.masks, tf.float32)[0, ..., :, :]
-#                self.summaries['logits'] = self.logits[0, ..., :, :,0]
-#                self.summaries['preds'] = tf.cast(self.preds, tf.float32)[0, ..., :, :]
 
                 self.createSummaries(mode,params)
                 

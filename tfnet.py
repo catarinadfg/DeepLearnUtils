@@ -108,7 +108,7 @@ def unet2D(x,numClasses,channels,strides,kernelsize=3,numSubunits=2,isTraining=T
     for i,addx,c,s in elist:
         with tf.variable_scope('Decode%i'%i):
             x=upsampleConcat2D(x,addx,s,kernelsize)
-            x=residualUnit2D(x,c,1,kernelsize,numSubunits,False,isTraining)
+            x=residualUnit2D(x,c,1,kernelsize,1,False,isTraining)
             
     # generate prediction outputs, x has shape (B,H,W,numClasses)
     with tf.variable_scope('Preds'):
