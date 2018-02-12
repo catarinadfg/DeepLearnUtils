@@ -4,9 +4,11 @@ load the returned segmentation image. This assumes the segmentation model accept
 a binary segmentation, for anything more complex the requestSeg() function should be changed.
 '''
 from __future__ import division, print_function
-from eidolon import ImageSceneObject,processImageNp, trange, first, rescaleArray
+from eidolon import ImageSceneObject,processImageNp, trange, first, rescaleArray, printFlush
 import io
 import urllib2
+
+import numpy as np
 
 try:
     from imageio import imwrite, imread
@@ -29,18 +31,24 @@ def requestSeg(inmat,outmat,url):
         count+=1
         task.setProgress(count)
             
-        img=rescaleArray(inmat[:,:,s,t])
+        img=inmat[:,:,s,t]
+        #img=rescaleArray(img)
         
         if img.max()>img.min(): # non-empty image
             stream=io.BytesIO()
-            imwrite(stream,img*255,format='png') # encode image as png
+            imwrite(stream,img,'png') # encode image as png
             stream.seek(0)
 
-            request = urllib2.Request(url+'?keepLargest=false',stream.read(),{'Content-Type':'image/png'})
+            request = urllib2.Request(url,stream.read(),{'Content-Type':'image/png'})
             req=urllib2.urlopen(request)
             
             if req.code==200: 
-                outmat[:,:,s,t]=rescaleArray(imread(io.BytesIO(req.read())))
+                im=imread(io.BytesIO(req.read()))
+                printFlush(im.shape,im.min(),im.max(),im[0,0])
+                im=np.maximum(im.astype(float)-im[0,0],0)
+                outmat[:,:,s,t]=rescaleArray(im)
+            
+            
     
 
 o=mgr.win.getSelectedObject() or first(mgr.objs)
@@ -50,7 +58,7 @@ if o is None:
 elif not isinstance(o,ImageSceneObject):
     mgr.showMsg('Selected object %r is not an image'%o.getName())
 else:
-    oo=o.plugin.clone(o,o.getName()+'_Seg')
+    oo=o.plugin.clone(o,o.getName()+'_sharp')
     
     with processImageNp(oo,True) as m:
         requestSeg(m,m,localurl)

@@ -1,5 +1,5 @@
 '''
-A simple Flask-based server for providing segmentation inference through an HTTP interface. 
+A simple Flask-based server for providing segmentation inference through a HTTP interface. 
 '''
 from __future__ import division, print_function
 import sys, os, io, argparse
@@ -17,7 +17,6 @@ except:
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from segmenter import Segmenter
-from trainutils import rescaleArray
 
 
 app = Flask(__name__)
@@ -27,15 +26,12 @@ segmap={}
 @app.route('/segment/<name>', methods=['POST'])
 def segment(name):
     segobj=segmap[name]
-    keepLargest=request.args.get('keepLargest','true').lower()=='true'
+    args=dict(request.args.items()) # keep only one value per argument key
     
     imgmat=imread(request.data) # read posted image file to matrix
-    imgmat=rescaleArray(imgmat) # input images are expected to be normalized
-    
-    if imgmat.ndim==2: # extend a (W,H) stack to be (W,H,C) with a single channel
-        imgmat=np.expand_dims(imgmat,axis=-1)
         
-    result=segobj.apply(imgmat,keepLargest) # apply segmentation
+    tf.logging.info('segment(): %r %r %r %r %r %r'%(name,imgmat.shape,imgmat.dtype,imgmat.min(),imgmat.max(),args))
+    result=segobj.apply(imgmat,**args) # apply segmentation
     
     stream=io.BytesIO()
     imwrite(stream,result,format='png') # save result to png file stream
@@ -48,15 +44,15 @@ if __name__=='__main__':
     tf.logging.set_verbosity(tf.logging.INFO)
     
     parser=argparse.ArgumentParser('SegServ.py')
-    parser.add_argument('metafilename',help='Named path to a Tensorflow meta graph file in the form "name:path"',nargs='+')
+    parser.add_argument('metafilename',help='Named path to a Tensorflow meta graph file in the form "name:path"',nargs='*')
     parser.add_argument('--host',help='Server host address',default='0.0.0.0')
     parser.add_argument('--port',help='Post to listen on',type=int,default=5000)
     parser.add_argument('--device',help='Tensorflow device name to compute on',default='/gpu:0')
     args=parser.parse_args()
     
     class EchoSegmenter(object):
-        def apply(self,img,_):
-            return img[...,0]
+        def apply(self,img):
+            return np.squeeze(img)
         
     segmap['echo']=EchoSegmenter() # add a "segmenter" which simply returns the first channel of any input image
     

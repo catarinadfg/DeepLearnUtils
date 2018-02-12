@@ -14,6 +14,7 @@ export CUDA_VISIBLE_DEVICES=1
 
 kill $(cat pid.log) || echo "Server not running, nothing to kill"
 
-nohup $HOME/anaconda2/bin/python segserv.py realtime:$REALTIME sax:$SAX lax:$LAX sharpen:$SHARPEN 2> segserv.log &
+nohup $HOME/anaconda2/bin/python segserv.py realtime:$REALTIME sax:$SAX lax:$LAX 2> segserv.log &
+#nohup $HOME/anaconda2/bin/python segserv.py sharpen:$SHARPEN 2> segserv.log &
 
 echo $! > pid.log
