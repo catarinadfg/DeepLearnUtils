@@ -41,14 +41,14 @@ def requestSeg(inmat,outmat,url):
     
     if img.max()>img.min(): # non-empty image
         stream=io.BytesIO()
-        imwrite(stream,img*255,format='png') # encode image as png
+        imwrite(stream,img,format='png') # encode image as png
         stream.seek(0)
 
         request = urllib2.Request(url+'?keepLargest=true',stream.read(),{'Content-Type':'image/png'})
         req=urllib2.urlopen(request)
         
         if req.code==200: 
-            outmat[:,:,0]=imread(io.BytesIO(req.read()))
+            outmat[:,:,0]=imread(io.BytesIO(req.read()))>0
     
 
 o=mgr.win.getSelectedObject() or first(mgr.objs)
@@ -63,12 +63,6 @@ else:
     mag,motion,edge=processImage(o)
     
     combined=np.stack([mag,motion,edge],axis=-1)
-    
-    #minx,miny,maxx,maxy=calculateBinaryMaskBox(mag)
-    inds=ndimage.find_objects(mag.astype(int))[0]
-    minx,miny,maxx,maxy=inds[0].start, inds[1].start, inds[0].stop, inds[1].stop
-    
-    combined[miny:maxy,minx:maxx]=0
     
     with processImageNp(oo,True) as m:
         requestSeg(combined,m[...,0],localurl)

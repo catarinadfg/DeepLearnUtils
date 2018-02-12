@@ -48,8 +48,6 @@ def requestSeg(inmat,outmat,url):
                 im=np.maximum(im.astype(float)-im[0,0],0)
                 outmat[:,:,s,t]=rescaleArray(im)
             
-            
-    
 
 o=mgr.win.getSelectedObject() or first(mgr.objs)
 

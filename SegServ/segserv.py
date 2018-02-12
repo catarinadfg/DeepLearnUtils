@@ -26,7 +26,7 @@ segmap={}
 @app.route('/segment/<name>', methods=['POST'])
 def segment(name):
     segobj=segmap[name]
-    args=dict(request.args.items()) # keep only one value per argument key
+    args=dict(request.args.items()) # keep only one value per argument name
     
     imgmat=imread(request.data) # read posted image file to matrix
         
@@ -57,7 +57,6 @@ if __name__=='__main__':
     segmap['echo']=EchoSegmenter() # add a "segmenter" which simply returns the first channel of any input image
     
     for namepath in args.metafilename:
-        #n=os.path.splitext(os.path.basename(name))[0]
         name,path=namepath.split(':')
         segmap[name]=Segmenter(path,args.device)
         
