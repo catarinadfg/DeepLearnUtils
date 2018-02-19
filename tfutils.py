@@ -78,29 +78,6 @@ class GraphImageHook(tf.train.SessionRunHook):
         
     def update(self):
         pass
-
-
-def adaptImageSource(src,batchSize,inTypes,queueLength=1):
-    batches=queue.Queue(queueLength)
-    
-    test=src.getBatch(batchSize)
-    shapes=tuple(list(t.shape) for t in test)
-    
-    def _batchThread():
-        while True:
-                batches.put(src.getBatch(batchSize))
-            
-    batchthread=threading.Thread(target=_batchThread)
-    batchthread.daemon=True
-    batchthread.start()
-    
-    def _dequeue():
-        while True:
-            yield batches.get()
-        
-    ds = tf.data.Dataset.from_generator(_dequeue,inTypes,shapes).repeat()
-    it=ds.make_one_shot_iterator()    
-    return it.get_next
     
 
 class BaseEstimator(tf.estimator.Estimator):
