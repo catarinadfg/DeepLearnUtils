@@ -5,7 +5,13 @@ import numpy as np
 import os
 import datetime
 import collections
+import threading
 
+try:
+    import queue
+except:
+    import Queue as queue
+    
 
 def averageGradients(tower_grads):
     '''
@@ -74,6 +80,29 @@ class GraphImageHook(tf.train.SessionRunHook):
         pass
 
 
+def adaptImageSource(src,batchSize,inTypes,queueLength=1):
+    batches=queue.Queue(queueLength)
+    
+    test=src.getBatch(batchSize)
+    shapes=tuple(list(t.shape) for t in test)
+    
+    def _batchThread():
+        while True:
+                batches.put(src.getBatch(batchSize))
+            
+    batchthread=threading.Thread(target=_batchThread)
+    batchthread.daemon=True
+    batchthread.start()
+    
+    def _dequeue():
+        while True:
+            yield batches.get()
+        
+    ds = tf.data.Dataset.from_generator(_dequeue,inTypes,shapes).repeat()
+    it=ds.make_one_shot_iterator()    
+    return it.get_next
+    
+
 class BaseEstimator(tf.estimator.Estimator):
     def __init__(self,savedirprefix=None,runconf=None,params={}):
         self.savedir=None
@@ -106,10 +135,11 @@ class BaseEstimator(tf.estimator.Estimator):
             self.logqueue=[]
 
     def _modelfn(self,features, labels, mode, params):
-        self.createOptimizer(mode,params)
-        self.createNetwork(features,labels,mode,params)
 
-        with tf.variable_scope(tf.get_variable_scope(),reuse=tf.AUTO_REUSE):
+        with tf.variable_scope(tf.get_variable_scope()):
+            self.createOptimizer(mode,params)
+            self.createNetwork(features,labels,mode,params)
+            
             if mode == tf.estimator.ModeKeys.PREDICT:
                 outs={'out': tf.estimator.export.PredictOutput(self.net)}
                 return tf.estimator.EstimatorSpec( mode=mode, predictions=self.net, export_outputs=outs)

@@ -55,9 +55,8 @@ class Segmenter(object):
         result=np.zeros(img.shape[:-1],np.float32)
         imin=img.min()
         imax=img.max()
-        keepLargest=keepLargest in (True,'true')
         
-        if normalizeImg in (True,'true'):
+        if normalizeImg:
             tf.logging.info('Input range: %r %r'%(img.min(),img.max()))
             img=rescaleArray(img)
         

@@ -2,7 +2,7 @@
 A simple Flask-based server for providing segmentation inference through a HTTP interface. 
 '''
 from __future__ import division, print_function
-import sys, os, io, argparse
+import sys, os, io, argparse, ast
 
 from flask import Flask, request, send_file
 
@@ -17,6 +17,7 @@ except:
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from segmenter import Segmenter
+from trainutils import rescaleArray
 
 
 app = Flask(__name__)
@@ -26,15 +27,22 @@ segmap={}
 @app.route('/segment/<name>', methods=['POST'])
 def segment(name):
     segobj=segmap[name]
-    args=dict(request.args.items()) # keep only one value per argument name
+    args={k:ast.literal_eval(v) for k,v in request.args.items()} # keep only one value per argument name
     
-    imgmat=imread(request.data) # read posted image file to matrix
+    imgmat=imread(io.BytesIO(request.data)) # read posted image file to matrix
+    
+    if 'rescale' in args:
+        minv,maxv=args.pop('rescale')
+    else:
+        minv,maxv=0.0,1.0
+        
+    imgmat=rescaleArray(imgmat,minv,maxv)
         
     tf.logging.info('segment(): %r %r %r %r %r %r'%(name,imgmat.shape,imgmat.dtype,imgmat.min(),imgmat.max(),args))
     result=segobj.apply(imgmat,**args) # apply segmentation
     
     stream=io.BytesIO()
-    imwrite(stream,result,format='png') # save result to png file stream
+    imwrite(stream,rescaleArray(result),format='png') # save result to png file stream
     stream.seek(0)
     
     return send_file(stream,'image/png') # respond with stream

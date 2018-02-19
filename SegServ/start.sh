@@ -7,14 +7,15 @@ DLTK=/home/localek10/workspace/Projs/SegmentTests/dltk-20171114184156/dltk.meta
 #SAX=/home/localek10/data/Projs/SAXSegment/sax-20180119145547/model.ckpt-14228.meta
 SAX=/home/localek10/data/Projs/SAXSegment/saxown-20180202005555/model.ckpt-2401.meta
 LAX=/home/localek10/data/Projs/LAXSegment/lax-20180125133642/model.ckpt-3001.meta
-SHARPEN=/home/localek10/data/Projs/BramRealTime/sharpen-20180210010915/model.ckpt-15001.meta
+SHARPEN=/data/Projs/BramRealTime/sharpen-20180215133726/model.ckpt-20002.meta
 
 # restricts the server to using only device 1, this is more effective than using tf.device() it seems, comment if you don't want to use device 1
 export CUDA_VISIBLE_DEVICES=1
 
 kill $(cat pid.log) || echo "Server not running, nothing to kill"
 
-nohup $HOME/anaconda2/bin/python segserv.py realtime:$REALTIME sax:$SAX lax:$LAX 2> segserv.log &
-#nohup $HOME/anaconda2/bin/python segserv.py sharpen:$SHARPEN 2> segserv.log &
+nohup $HOME/anaconda2/bin/python segserv.py realtime:$REALTIME sax:$SAX lax:$LAX sharpen:$SHARPEN  &
 
 echo $! > pid.log
+
+tail -f nohup.out

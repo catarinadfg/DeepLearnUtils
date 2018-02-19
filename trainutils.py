@@ -6,11 +6,19 @@ import matplotlib.gridspec as gridspec
 from matplotlib.ticker import MaxNLocator
 
 
-def rescaleArray(arr,minv=0.0,maxv=1.0):
-    '''Rescale the values of numpy array `arr' to the range `minv' to `maxv'.'''
+def rescaleArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
+    '''Rescale the values of numpy array `arr' to be from `minv' to `maxv'.'''
+    if dtype is not None:
+        arr=arr.astype(dtype)
+        
     mina=np.min(arr)
-    norm=(arr-mina)/(np.max(arr)-mina)
-    return (norm*(maxv-minv))+minv
+    maxa=np.max(arr)
+    
+    if mina==maxa:
+        return arr*minv
+    
+    norm=(arr-mina)/(maxa-mina) # normalize the array first
+    return (norm*(maxv-minv))+minv # rescale by minv and maxv, which is the normalized array by default
 
 
 def comparePrediction(imgs,masks,logits,preds,title=''):

@@ -7,6 +7,14 @@ import multiprocessing
 
 import numpy as np
 from scipy.ndimage import shift,zoom,rotate
+from scipy.ndimage.filters import gaussian_filter
+
+from trainutils import rescaleArray
+    
+try:
+    import queue
+except:
+    import Queue as queue
     
 
 def randChoice(prob=0.5):
@@ -29,7 +37,10 @@ def zeroMargins(img,margin):
     return np.any(img>img.min()) and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
 
 
-def shiftAugment(img,mask,margin=5):
+def shiftAugment(img,mask,margin=5,prob=0.5):
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,mask
+    
     x,y=mask.shape[:2]
     mask1=mask.astype(np.int)
     shiftx=None
@@ -46,7 +57,10 @@ def shiftAugment(img,mask,margin=5):
     return shift(img,(shiftx,shifty)+ishift0),shift(mask,(shiftx,shifty)+mshift0)
     
     
-def rotateAugment(img,mask,margin=5):
+def rotateAugment(img,mask,margin=5,prob=0.5):
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,mask
+    
     angle=None
     mask1=mask.astype(np.int)
     
@@ -57,7 +71,10 @@ def rotateAugment(img,mask,margin=5):
     return rotate(img,angle,reshape=False),rotate(mask,angle,reshape=False)
     
     
-def zoomAugment(img,mask,margin=5,zoomrange=0.2):
+def zoomAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,mask
+    
     def _copyzoom(im,zx,zy):
         temp=np.zeros_like(im)
         ztemp=zoom(im,(zx,zy)+tuple(1 for _ in range(2,im.ndim)),order=2)
@@ -85,18 +102,28 @@ def zoomAugment(img,mask,margin=5,zoomrange=0.2):
     return _copyzoom(img,zx,zy),tempmask
 
     
-def transposeAugment(img,mask):
+def transposeAugment(img,mask,prob=0.5):
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,mask
+    
+
     return np.swapaxes(img,0,1),np.swapaxes(mask,0,1)
 
 
-def flipAugment(img,out):
+def flipAugment(img,out,prob=0.5):
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,out
+    
     if randChoice():
         return np.fliplr(img),np.fliplr(out)
     else:
         return np.flipud(img),np.flipud(out)
         
         
-def rot90Augment(img,out):
+def rot90Augment(img,out,prob=0.5):
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,out
+    
     r=random.random()
     if r<0.33333:
         num=1
@@ -106,16 +133,37 @@ def rot90Augment(img,out):
         num=3
         
     return np.rot90(img,num),np.rot90(out,num)
+
+
+def randomCrop(img,out,box=(64,64)):
+    h,w=box
+    h2=h//2
+    w2=w//2
+    x=None
+    y=None
     
+    while x==None or np.sum(img[y-h2:y+h2,x-w2:x+w2])==0:
+        x=w2+int(random.random()*(img.shape[1]-w-1))
+        y=h2+int(random.random()*(img.shape[0]-h-1))
+    
+    return img[y-h2:y+h2,x-w2:x+w2],out[y-h2:y+h2,x-w2:x+w2]
+    
+
+def blurOut(img,out,sigma=2):
+    return img,gaussian_filter(out,sigma)
+    
+
+def normalizeBoth(img,out):
+    return rescaleArray(img),rescaleArray(out)
+
     
 class TrainImageSource(object):
-    def __init__(self,images,outputs,augments=[],numthreads=None,randomizeAugs=True):
+    def __init__(self,images,outputs,augments=[],numthreads=None):
         assert images.shape[:3]==outputs.shape[:3],'%r != %r'%(images.shape[:3],outputs.shape[:3])
         
         self.images=images
         self.outputs=outputs
         self.numthreads=numthreads
-        self.randomizeAugs=randomizeAugs
         self.indices=list(range(self.images.shape[0]))
         #self.imgshape=list(self.images.shape)[1:]
         #self.outshape=list(self.outputs.shape)[1:]
@@ -149,8 +197,23 @@ class TrainImageSource(object):
         
         # apply each augment to the image and mask, giving each a 50% chance of being used if self.randomizeAugs is True
         for aug in self.augments:
-            if not self.randomizeAugs or randChoice():
-                img,out=aug(img,out)
+            img,out=aug(img,out)
                     
         return img,out
+    
+    def getAsyncGenerator(self,numimgs,queueLength=1):
+        batches=queue.Queue(queueLength)
+        
+        def _batchThread():
+            while True:
+                    batches.put(self.getBatch(numimgs))
+                
+        batchthread=threading.Thread(target=_batchThread)
+        batchthread.daemon=True
+        batchthread.start()
+        
+        def _dequeue():
+            return batches.get()
+                
+        return _dequeue
     
