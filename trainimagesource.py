@@ -165,8 +165,6 @@ class TrainImageSource(object):
         self.outputs=outputs
         self.numthreads=numthreads
         self.indices=list(range(self.images.shape[0]))
-        #self.imgshape=list(self.images.shape)[1:]
-        #self.outshape=list(self.outputs.shape)[1:]
         self.augments=list(augments)
         
     def getBatch(self,numimgs):
