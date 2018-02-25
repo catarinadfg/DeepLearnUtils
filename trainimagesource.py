@@ -34,7 +34,7 @@ def inBounds(x,y,margin,maxx,maxy):
     
 def zeroMargins(img,margin):
     '''Returns True if the values within `margin' indices of the edges of `img' are 0.'''
-    return np.any(img>img.min()) and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
+    return img.max()>img.min() and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
 
 
 def shiftAugment(img,mask,margin=5,prob=0.5):
@@ -49,7 +49,7 @@ def shiftAugment(img,mask,margin=5,prob=0.5):
     ishift0=tuple(0 for _ in range(2,img.ndim))
     mshift0=tuple(0 for _ in range(2,mask.ndim))
     
-    while smask is None or smask.max()==0 or not zeroMargins(smask,margin):
+    while smask is None or not zeroMargins(smask,margin):
         shiftx=random.randint(-x/2,x/2)
         shifty=random.randint(-y/2,y/2)
         smask=shift(mask1,(shiftx,shifty)+mshift0)

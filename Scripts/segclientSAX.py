@@ -53,7 +53,7 @@ def requestSeg(inmat,outmat,url):
             imwrite(stream,img,format='png') # encode image as png
             stream.seek(0)
 
-            request = urllib2.Request(url+'?keepLargest=true',stream.read(),{'Content-Type':'image/png'})
+            request = urllib2.Request(url+'?keepLargest=True',stream.read(),{'Content-Type':'image/png'})
             req=urllib2.urlopen(request)
             
             if req.code==200: 
