@@ -4,6 +4,7 @@
 REALTIME=/home/localek10/data/Projs/BramRealTime/realtime-20180125202714/model.ckpt-3001.meta
 REALTIME=/home/localek10/data/Projs/BramRealTime/realtime-20180205030522/model.ckpt-4001.meta
 REALTIME=/home/localek10/data/Projs/BramRealTime/realtime-20180223180919/model.ckpt-8001.meta
+REALTIME=/data/Projs/BramRealTime/realtime-20180226141303-24003/model.ckpt-24003.meta
 
 DLTK=/home/localek10/workspace/Projs/SegmentTests/dltk-20171114184156/dltk.meta
 #SAX=/home/localek10/data/Projs/SAXSegment/sax-20180119145547/model.ckpt-14228.meta

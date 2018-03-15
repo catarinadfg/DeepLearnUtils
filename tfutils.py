@@ -34,7 +34,7 @@ def averageGradients(tower_grads):
 
 def binaryMaskDiceLoss(logits, labels, smooth=1e-5):
     '''Return the binary mask dice loss between the given logits and labels.'''
-    axis = list(range(1, logits.shape.ndims - 1))
+    axis = list(range(1, logits.shape.ndims - 1)) # for BWHC sum over WH
     logits=tf.cast(logits,tf.float32)
     labels=tf.cast(labels,tf.float32)
 
