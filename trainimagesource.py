@@ -29,7 +29,9 @@ def imgBounds(img):
 
     
 def inBounds(x,y,margin,maxx,maxy):
-    return x>=margin and y>=margin and x<(maxx-margin) and y<(maxy-margin)
+    '''Returns True if (x,y) is within the rectangle (margin,margin,maxx-margin,maxy-margin).'''
+    #return x>=margin and y>=margin and x<(maxx-margin) and y<(maxy-margin)
+    return margin<=x<(maxx-margin) and margin<y<(maxy-margin)
     
     
 def zeroMargins(img,margin):
