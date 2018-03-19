@@ -18,6 +18,7 @@ except:
     
 
 def randChoice(prob=0.5):
+    '''Returns True if a randomly chosen number is less than or equal to `prob', by default this is a 50/50 chance.'''
     return random.random()<=prob
 
 
@@ -39,7 +40,8 @@ def zeroMargins(img,margin):
     return img.max()>img.min() and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
 
 
-def shiftAugment(img,mask,margin=5,prob=0.5):
+def shiftMaskAugment(img,mask,margin=5,prob=0.5):
+    '''Return the image/mask pair shifted by a random amount with the mask kept within `margin' pixels of the edges.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,mask
     
@@ -59,7 +61,8 @@ def shiftAugment(img,mask,margin=5,prob=0.5):
     return shift(img,(shiftx,shifty)+ishift0),shift(mask,(shiftx,shifty)+mshift0)
     
     
-def rotateAugment(img,mask,margin=5,prob=0.5):
+def rotateMaskAugment(img,mask,margin=5,prob=0.5):
+    '''Return the image/mask pair rotated by a random amount with the mask kept within `margin' pixels of the edges.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,mask
     
@@ -73,7 +76,8 @@ def rotateAugment(img,mask,margin=5,prob=0.5):
     return rotate(img,angle,reshape=False),rotate(mask,angle,reshape=False)
     
     
-def zoomAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
+def zoomMaskAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
+    '''Return the image/mask pair zoomed by a random amount with the mask kept within `margin' pixels of the edges.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,mask
     
@@ -104,7 +108,8 @@ def zoomAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
     return _copyzoom(img,zx,zy),tempmask
 
     
-def transposeAugment(img,mask,prob=0.5):
+def transposeBothAugment(img,mask,prob=0.5):
+    '''Transpose both inputs.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,mask
     
@@ -112,7 +117,8 @@ def transposeAugment(img,mask,prob=0.5):
     return np.swapaxes(img,0,1),np.swapaxes(mask,0,1)
 
 
-def flipAugment(img,out,prob=0.5):
+def flipBothAugment(img,out,prob=0.5):
+    '''Flip both inputs with a random choice of up-down or left-right.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,out
     
@@ -122,7 +128,8 @@ def flipAugment(img,out,prob=0.5):
         return np.flipud(img),np.flipud(out)
         
         
-def rot90Augment(img,out,prob=0.5):
+def rot90BothAugment(img,out,prob=0.5):
+    '''Rotate both inputs a random choice of quarter, half, or three-quarter circle rotations.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,out
     
@@ -137,7 +144,13 @@ def rot90Augment(img,out,prob=0.5):
     return np.rot90(img,num),np.rot90(out,num)
 
 
-def randomCrop(img,out,box=(64,64)):
+def normalizeBothAugment(img,out):
+    '''Normalize both inputs.'''
+    return rescaleArray(img),rescaleArray(out)
+
+
+def randomCropBothAugment(img,out,box=(64,64)):
+    '''Randomly crop both inputs to return image pairs of size `box'.'''
     h,w=box
     h2=h//2
     w2=w//2
@@ -149,14 +162,94 @@ def randomCrop(img,out,box=(64,64)):
         y=h2+int(random.random()*(img.shape[0]-h-1))
     
     return img[y-h2:y+h2,x-w2:x+w2],out[y-h2:y+h2,x-w2:x+w2]
+
+
+def shiftImgAugment(img,out,prob=0.5):
+    '''Shift `img' by a random amount and leave `out' unchanged.'''
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,out
+    
+    x,y=img.shape[:2]
+    shiftx=random.randint(-x/2,x/2)
+    shifty=random.randint(-y/2,y/2)
+    ishift0=tuple(0 for _ in range(2,img.ndim))
+    
+    return shift(img,(shiftx,shifty)+ishift0),out
+    
+    
+def rotateImgAugment(img,out,prob=0.5):
+    '''Rotate `img' by a random amount and leave `out' unchanged.'''
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,out
+    
+    angle=random.random()*360
+    
+    return rotate(img,angle,reshape=False),out
+    
+    
+def zoomImgAugment(img,out,zoomrange=0.2,prob=0.5):
+    '''Zoom `img' by a random amount and leave `out' unchanged.'''
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,out
+    
+    z=zoomrange-random.random()*zoomrange*2
+    zx=z+1.0+zoomrange*0.25-random.random()*zoomrange*0.5
+    zy=z+1.0+zoomrange*0.25-random.random()*zoomrange*0.5
+    
+    temp=np.zeros_like(img)
+    ztemp=zoom(img,(zx,zy)+tuple(1 for _ in range(2,img.ndim)),order=2)
+    
+    tx=temp.shape[0]//2
+    ty=temp.shape[1]//2
+    ztx=ztemp.shape[0]//2
+    zty=ztemp.shape[1]//2
+    wx=min(tx,ztx)
+    wy=min(ty,zty)
+    
+    temp[tx-wx:tx+wx,ty-wy:ty+wy]=ztemp[ztx-wx:ztx+wx,zty-wy:zty+wy]
+    
+    return temp,out
+
+
+def transposeImgAugment(img,out,prob=0.5):
+    '''Transpose `img' and leave `out' unchanged.'''
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,out
     
 
-def blurOut(img,out,sigma=2):
+    return np.swapaxes(img,0,1),out
+
+
+def flipImgAugment(img,out,prob=0.5):
+    '''Flip `img' with a random choice of up-down or left-right and leave `out' unchanged.'''
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,out
+    
+    if randChoice():
+        return np.fliplr(img),out
+    else:
+        return np.flipud(img),out
+        
+        
+def rot90ImgAugment(img,out,prob=0.5):
+    '''Rotate `img' a random choice of quarter, half, or three-quarter circle rotations, and leave `out' unchanged.'''
+    if randChoice(prob): # `prob' chance of using this augment
+        return img,out
+    
+    r=random.random()
+    if r<0.33333:
+        num=1
+    elif r<0.66666:
+        num=2
+    else:
+        num=3
+        
+    return np.rot90(img,num),out
+    
+
+def blurImgAugment(img,out,sigma=2):
+    '''Blur `img' with gaussian filter using `sigma' with out unchanged.'''
     return img,gaussian_filter(out,sigma)
-    
-
-def normalizeBoth(img,out):
-    return rescaleArray(img),rescaleArray(out)
 
     
 class TrainImageSource(object):
@@ -212,8 +305,6 @@ class TrainImageSource(object):
         batchthread.daemon=True
         batchthread.start()
         
-        def _dequeue():
-            return batches.get()
-                
-        return _dequeue
+        return batches.get
+    
     

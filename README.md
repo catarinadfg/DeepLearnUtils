@@ -1,2 +1,2 @@
 # TFSegmentUtils
-Set of utilities for biomedical segmentation using Tensorflow
+Set of utilities for biomedical inference using Tensorflow and PyTorch.
