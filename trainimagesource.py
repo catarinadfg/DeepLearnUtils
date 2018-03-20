@@ -294,7 +294,7 @@ class TrainImageSource(object):
                     
         return img,out
     
-    def getAsyncGenerator(self,numimgs,queueLength=1):
+    def getAsyncFunc(self,numimgs,queueLength=1):
         batches=queue.Queue(queueLength)
         
         def _batchThread():

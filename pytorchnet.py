@@ -39,33 +39,33 @@ class ResidualUnit2D(nn.Module):
         self.outChannels=outChannels
         
         padding=(kernelsize-1)//2 
+        seq=[]
+        schannels=inChannels
+        sstrides=strides
         
-        seq=[
-            nn.BatchNorm2d(inChannels),
-            nn.modules.PReLU(),
-            nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding)
-        ]
-        
-        for su in range(1,subunits):
+        for su in range(subunits):
             seq+=[
-                nn.BatchNorm2d(outChannels),
+                nn.BatchNorm2d(schannels), 
                 nn.modules.PReLU(),
-                nn.Conv2d(outChannels,outChannels,kernel_size=kernelsize,stride=1,padding=padding)
+                nn.Conv2d(schannels,outChannels,kernel_size=kernelsize,stride=sstrides,padding=padding)
             ]
+            schannels=outChannels # after first loop set the channels and strides to what they should be for subsequent units
+            sstrides=1
             
-        self.conv=nn.Sequential(*seq)
+        self.conv=nn.Sequential(*seq) # apply this sequence of operations to the input
         
-        self.res=nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=1,padding=padding)
+        # apply this convolution to the input to change the number of output channels to match that coming from self.conv
+        self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=1,padding=padding)
         
-        if strides!=1:
-            self.res=nn.Sequential(nn.MaxPool2d(kernelsize,strides,padding),self.res)
+        # if the input was strided down then self.res should apply maxpool to the input first before changing output channels
+        if strides!=1: 
+            self.residual=nn.Sequential(nn.MaxPool2d(kernelsize,strides,padding),self.residual)
         
     def forward(self,x):
-        res=self.res(x)
-        cx=self.conv(x)
-        #print(self.inChannels,self.outChannels,x.shape,cx.shape,res.shape)
+        res=self.residual(x) # create the additive residual from x
+        cx=self.conv(x) # apply x to sequence of operations
         
-        return cx+res
+        return cx+res # add the residual to the output
     
 
 class UpsampleConcat2D(nn.Module):
@@ -140,37 +140,3 @@ class Unet2D(nn.Module):
 
         return x, preds
     
-if __name__=='__main__':
-    x=Variable(torch.from_numpy(itrain[:10].transpose((0,3,1,2))))
-    print(x.shape)
-    #print(itrain.dtype,x.type)
-    
-    
-    #tests=[(1,1),(2,1),(4,1),(1,3),(2,3),(4,3),(1,5),(2,5),(4,5)]
-    
-    #for s,k in tests:
-    #    res=ResidualUnit2D(3,3,strides=s,kernelsize=k,subunits=3)
-    #    print('%3.f %3.f'%res(x).shape[2:],s,k)            
-    
-    #up=UpsampleConcat2D(3,3,2)
-    #print(up(x[:,:,:128,:128],x).shape)
-    #up=UpsampleConcat2D(3,3,4)
-    #print(up(x,x).shape)
-    #up=UpsampleConcat2D(3,3,8)
-    #print(up(x,x).shape)
-    
-    #net=Unet2D(x.shape[1],2,[8,16,32],[1,2,2],3,4)
-    #print(net(x)[1].shape)
-    
-    #x=np.eye(4)*5-np.ones((4,4))*4
-    #x=Variable(torch.from_numpy(x[np.newaxis,np.newaxis]))
-    #print(x)
-    
-    #y=np.eye(4)
-    #y[0,0]=0
-    #y=Variable(torch.from_numpy(y[np.newaxis,np.newaxis]))
-    #print(y)
-    
-    
-    #print(x.double().shape,x.sum(2).sum(2).shape,reduceSum(x,[2,3]).shape,reduceMean(x,[2,3]).shape)
-    #print(BinaryDiceLoss()(x,y))

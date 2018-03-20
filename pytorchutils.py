@@ -2,17 +2,16 @@
 from __future__ import print_function,division
 import os
 import glob
+import time
 import datetime
 import torch
 import pytorchnet
 import numpy as np
 
 
-def convertAug(images,masks,isCuda=True):
-    images=images.transpose([2,0,1])
-    masks=masks[np.newaxis,:,:]
-        
-    return images,masks
+def convertAug(images,out):
+    '''Convert `images' and `out' to CH[W] format, assuming `images' is HWC and `out' is H[W].'''
+    return images.transpose([2,0,1]), out[np.newaxis,...]
 
 
 class NetworkManager(object):
@@ -34,6 +33,7 @@ class NetworkManager(object):
         if savedirprefix:
             if os.path.exists(savedirprefix):
                 self.savedir=savedirprefix
+                self.reload()
             else:
                 self.savedir='%s-%s'%(savedirprefix,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
                 os.mkdir(self.savedir)
@@ -56,7 +56,7 @@ class NetworkManager(object):
         pass
     
     def reload(self):
-        files=glob.glob(os.path.join(self.savedir,'*.pkl'))
+        files=glob.glob(os.path.join(self.savedir,'*.pth'))
         if files:
             self.load(max(files,key=os.path.getctime))
     
@@ -75,6 +75,7 @@ class NetworkManager(object):
 
     def train(self,inputfunc,steps,savesteps=5):
         self.log('===================================Starting===================================')
+        start=time.time()
         
         try:
             assert self.opt is not None
@@ -95,23 +96,38 @@ class NetworkManager(object):
                 loss.backward()
                 self.opt.step()
             
-                self.log('Loss:',loss.data[0])
-                self.updateStep(s,loss.data[0])
+                lossval=loss.data[0]
+                self.log('Loss:',lossval)
+                self.updateStep(s,lossval)
+                self.params['loss']=lossval
             
                 if self.savedir and savesteps>0 and ((s+1)%(steps//savesteps))==0:
-                    self.save(os.path.join(self.savedir,'net_%.5i.pkl'%s))
+                    self.save(os.path.join(self.savedir,'net_%.5i.pth'%s))
                     
         except Exception as e:
             self.log(e)
             raise
         finally:
+            self.log('Total time (s): %s'%(time.time()-start))
+            self.log('Params:',self.params)
             self.log('===================================Done===================================')
 
-    def evaluate(self,inputs):
+    def evaluate(self,inputs,batchSize=1):
+        inputlen=inputs[0].shape[0]
+        losses=[]
+        
+        for i in range(0,inputlen,batchSize):
+            self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
+            self.netoutputs=self.netForward()
+            loss=self.lossForward()
+            losses.append(loss.data[0])
+            
+        return losses
+    
+    def infer(self,inputs):
         self.traininputs=[self.convertArray(arr) for arr in inputs]
         self.netoutputs=self.netForward()
-        loss=self.lossForward()
-        return loss.data[0]
+        return [arr.cpu().data.numpy() for arr in self.netoutputs]
         
     
 class BinarySegmentMgr(NetworkManager):
