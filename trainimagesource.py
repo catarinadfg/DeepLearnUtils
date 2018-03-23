@@ -253,8 +253,16 @@ def blurImgAugment(img,out,sigma=2):
 
     
 class TrainImageSource(object):
+    '''
+    Given a set of images and outputs associated with them, this defines an infinite queue of minibatches with image
+    augmentations applied to either the image or both data elements.
+    '''
     def __init__(self,images,outputs,augments=[],numthreads=None):
-        assert images.shape[:3]==outputs.shape[:3],'%r != %r'%(images.shape[:3],outputs.shape[:3])
+        '''
+        Initialize the queue with `images' as the image list and `outputs' as the list fo associated per-image out values.
+        The `images' array is expected to be in BHWC or BDHWC index ordering.
+        '''
+        assert images.shape[0]==outputs.shape[0],'%r != %r'%(images.shape[0],outputs.shape[0])
         
         self.images=images
         self.outputs=outputs

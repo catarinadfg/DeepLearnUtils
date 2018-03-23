@@ -1,9 +1,76 @@
 
 from __future__ import division, print_function
+import subprocess,re,time
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.ticker import MaxNLocator
+
+gpunames=re.compile('\|\s+\d+\s+([a-zA-Z][^\|]+) O[nf][f ]')
+gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
+gpuload=re.compile('MiB\s*\|\s*(\d+)\%')
+
+
+def getNvidiaInfo(proc='nvidia-smi'):
+    '''
+    Get name, nemory usage, and loads on GPUs using the program "nvidia-smi". The value `proc' should be the path to the
+    program, which must be absolute if it isn't on the path. The return value is a dictionary with a list of GPU names
+    keyed to "names", a list of per-GPU memory use values in MiB keyed to "memused", a list of total memory keyed to 
+    "memtotal", and a list of percentage compute loads keyed to "loads".
+    '''
+    result=str(subprocess.check_output(proc))
+    
+    names=re.findall(gpunames,result)
+    load=re.findall(gpuload,result)
+    mem=re.findall(gpumem,result)
+    
+    return dict(
+        names=[m.strip() for m in names],
+        memused=[int(m[0]) for m in mem],
+        memtotal=[int(m[1]) for m in mem],
+        loads=[int(l) for l in load]
+    )    
+    
+
+def getMemInfo(src='/proc/meminfo'):
+    '''Return a dictionary containing the parsed contents of `src', which is expected to be like /proc/meminfo.'''
+    def split(v):
+        v=v.split()
+        return v[0][:-1],int(v[1])
+    
+    with open(src) as o:
+        return dict(map(split,o))
+
+
+def getCpuInfo(src='/proc/stat',waitTime=0.1):
+    '''Use info in `src' to generate a dictionary mapping CPUs to (load%,idle time, total time) tuples.'''
+    def getCpuTimes():
+        with open(src) as o:
+            result={}
+            
+            for line in o:
+                if not line.startswith('cpu'):
+                    break
+                
+                line=[l.strip() for l in line.split(' ') if l]
+                values=[int(v) for v in line[1:]] # user,nice,system,idle,iowait,irq,softrig,steal,guest,guest_nice
+                
+                result[line[0]]=(values[3]+values[4],sum(values[:-2])) # (idle times, total times without guest values)
+                
+            return result
+            
+    start=getCpuTimes()
+    time.sleep(waitTime)
+    stop=getCpuTimes()
+    result = {}
+
+    for cpu in start:
+        curIdle,curTotal = stop[cpu]
+        prevIdle,prevTotal = start[cpu]
+
+        load=((curTotal-prevTotal)-(curIdle-prevIdle))/float(curTotal-prevTotal)*100
+        result[cpu]=(load,curIdle,curTotal)
+    return result
 
 
 def rescaleArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
@@ -83,6 +150,54 @@ def viewImages(img,mask,maskval=0.25):
             p.parent().close()
             
     setattr(p.parent(),'keyPressEvent',_keypress)
+
+
+def plotSystemInfo(ax=None):
+    ax=ax or plt.subplot()
+    cols=[]
+    labels=[]
+    colors=['r','b']
+    
+    cpu=getCpuInfo()
+    cols.append(cpu['cpu'][0])
+    labels.append('CPU Load')
+    
+    mem=getMemInfo()
+    
+    allocperc=int((1.0-float(mem['MemAvailable'])/mem['MemTotal'])*100)
+    cols.append(allocperc)
+    labels.append('Mem Alloc')
+    
+    gpu=getNvidiaInfo()
+    
+    for n in range(len(gpu['names'])):
+        load=gpu['loads'][n]
+        name=gpu['names'][n]
+        memper=int(100*(float(gpu['memused'][n])/gpu['memtotal'][n]))
+        
+        cols.append(load)
+        labels.append(name+' Load')
+        cols.append(memper)
+        labels.append(name+' Mem')
+        
+        colors+=['r','b']
+        
+    inds=np.arange(len(cols))
+    
+    bars=ax.barh(inds,cols)
+    
+    for b,c in zip(bars,colors):
+        b.set_facecolor(c)
+    
+    ax.invert_yaxis()
+    ax.set_yticks(inds)
+    ax.set_yticklabels(labels)
+    ax.set_xlim([0, 100])
+    
+    ax.set_xlabel('% Usages')
+    ax.set_title('System Info')
+    
+    return ax
     
 
 def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
@@ -97,7 +212,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     else:
         fig = plt.figure(figsize=(20,14))
     
-    gs = gridspec.GridSpec(2,numimages,height_ratios=[2, 3],wspace=0.02, hspace=0.05)
+    gs = gridspec.GridSpec(2,numimages+1,height_ratios=[2, 3],wspace=0.1, hspace=0.1)
     
     graph=plt.subplot(gs[0,:])
     
@@ -119,11 +234,22 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
         im.axis('off')
         ims.append(im)
         
+    ax=plt.subplot(gs[1,numimages])
+    ax=plotSystemInfo(ax)
+        
     return fig,[graph]+ims
-
+    
     
 if __name__=='__main__':
-    im1=np.random.rand(5,10)
-    im2=np.random.rand(15,15)
-    plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1,'im2':im2})
+#    im1=np.random.rand(5,10)
+#    im2=np.random.rand(15,15)
+#    plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1,'im2':im2})
     
+#    print(getNvidiaInfo())
+#    print(getMemInfo())
+#    print(getCpuInfo())
+#    
+#    for cpu,load in getCpuInfo().items():
+#        print(cpu,load)
+
+    ax=plotSystemInfo()

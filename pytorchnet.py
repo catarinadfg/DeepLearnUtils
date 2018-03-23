@@ -5,31 +5,42 @@ import torch.nn as nn
 from torch.nn.modules.loss import _Loss
 
 
-def reduceWith(func,inp,axes=None):
-    axes=axes or range(len(inp.shape))
-    for a in sorted(axes,reverse=True):
-        inp=func(inp,a)
-        
-    return inp
+#def reduceWith(func,inp,axes=None):
+#    axes=axes or range(len(inp.shape))
+#    for a in sorted(axes,reverse=True):
+#        inp=func(inp,a)
+#        
+#    return inp
 
 
 class BinaryDiceLoss(_Loss):
     def forward(self, source, target, smooth=1e-5):
-        axis = list(range(2, len(source.shape))) # for BCWH sum over WH
+#        axis = list(range(2, len(source.shape))) # for BCWH sum over WH
+#        
+#        source=source.double()
+#        target=target.double()
+#        
+#        probs=source.sigmoid()
+#        psum=reduceWith(torch.sum,probs,axis)
+#        tsum=reduceWith(torch.sum,target,axis)
+#        
+#        inter=reduceWith(torch.sum,target*probs,axis)
+#        sums=psum+tsum
+#        
+#        dice=reduceWith(torch.mean,(2.0 * inter + smooth) / (sums + smooth))
+#        
+#        return 1.0-dice
+        batchsize = target.size(0)
+        probs = source.float().sigmoid()
+        psum = probs.view(batchsize, -1)
+        tsum = target.float().view(batchsize, -1)
         
-        source=source.double()
-        target=target.double()
-        
-        probs=source.sigmoid()
-        psum=reduceWith(torch.sum,probs,axis)
-        tsum=reduceWith(torch.sum,target,axis)
-        
-        inter=reduceWith(torch.sum,target*probs,axis)
+        intersection=psum*tsum
         sums=psum+tsum
-        
-        dice=reduceWith(torch.mean,(2.0 * inter + smooth) / (sums + smooth))
-        
-        return 1.0-dice
+
+        score = 2.0 * (intersection.sum(1) + smooth) / (sums.sum(1) + smooth)
+        score = 1 - score.sum() / batchsize
+        return score
     
 
 class ResidualUnit2D(nn.Module):
@@ -103,7 +114,7 @@ class Unet2D(nn.Module):
             
             setattr(self,'encode_%i'%(len(self.encodes)),x)
             self.encodes.insert(0,(x,dc,s,echannel))
-            echannel=c
+            echannel=c # use the output channel number as the input for the next loop
             
         # decode stage
         for ex,c,s,ec in self.encodes:
