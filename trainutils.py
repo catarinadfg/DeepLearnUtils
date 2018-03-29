@@ -215,9 +215,9 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     if fig:
         fig.clf()
     else:
-        fig = plt.figure(figsize=(20,20))
+        fig = plt.figure(figsize=(20,16))
     
-    fig.subplots_adjust(wspace=1, hspace=0)
+    #fig.subplots_adjust(wspace=1, hspace=0.3)
     graph= plt.subplot2grid(gridshape, (0, 0),colspan=gridshape[1])
     
     
@@ -248,10 +248,11 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
         ims.append(im)
         
     
-#    ax=fig.add_subplot(gs[1,numimages])
-    ax=plt.subplot2grid(gridshape, (3, 1),colspan=gridshape[1]-1)
+    ax=plt.subplot2grid(gridshape, (3, 0),rowspan=1,colspan=gridshape[1])
     ax=plotSystemInfo(ax)
     ims.append(ax)
+    
+    plt.tight_layout(pad=0.0, w_pad=0.0, h_pad=0.0)
     
     return fig,[graph]+ims
     
@@ -261,7 +262,7 @@ if __name__=='__main__':
     im2=np.random.rand(15,15)
     fig=plt.figure(figsize=(8,6))
     
-    f,ims=plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1,'im2':im2,'im3':im2},fig=fig)
+    f,ims=plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1},fig=fig)
 #    plt.tight_layout(pad=0.0, w_pad=0.0, h_pad=0.0)
     
 #    print(getNvidiaInfo())
