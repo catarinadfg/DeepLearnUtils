@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.ticker import MaxNLocator
 
+
 gpunames=re.compile('\|\s+\d+\s+([a-zA-Z][^\|]+) O[nf][f ]')
 gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
 gpuload=re.compile('MiB\s*\|\s*(\d+)\%')
@@ -193,9 +194,11 @@ def plotSystemInfo(ax=None):
     ax.set_yticks(inds)
     ax.set_yticklabels(labels)
     ax.set_xlim([0, 100])
+    ax.grid(True,axis='x')
     
     ax.set_xlabel('% Usages')
     ax.set_title('System Info')
+    
     
     return ax
     
@@ -207,43 +210,59 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     numimages=len(imagemap)
     assert numimages>0
     
+    gridshape=(4, numimages)
+    
     if fig:
         fig.clf()
     else:
-        fig = plt.figure(figsize=(20,14))
+        fig = plt.figure(figsize=(20,20))
     
-    gs = gridspec.GridSpec(2,numimages+1,height_ratios=[2, 3],wspace=0.1, hspace=0.1)
+    fig.subplots_adjust(wspace=1, hspace=0)
+    graph= plt.subplot2grid(gridshape, (0, 0),colspan=gridshape[1])
     
-    graph=plt.subplot(gs[0,:])
     
+#    gs = gridspec.GridSpec(2,numimages+1,height_ratios=[2, 3],
+#                           width_ratios=[2]*numimages+[1],wspace=0.1, hspace=0.3)
+#    
+#    graph=fig.add_subplot(gs[0,:])
+#    
+#    
     for n,v in graphmap.items():
         graph.plot(v,label='%s = %.3f '%(n,v[-1]))
 
     graph.set_title(graphtitle)
     graph.set_yscale(yscale)
     graph.axis('on')
-    graph.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+    graph.legend(bbox_to_anchor=(1, 1), loc=1, borderaxespad=0.)
     graph.grid(True,'both')
     graph.xaxis.set_major_locator(MaxNLocator(integer=True))
     
     ims=[]
     for i,n in enumerate(imagemap):
-        im=plt.subplot(gs[1,i])
+        #im=fig.add_subplot(gs[1,i])
+        im=plt.subplot2grid(gridshape, (1, i),rowspan=2)
+        
         im.imshow(np.squeeze(imagemap[n]),cmap='gray')
         im.set_title('%s = %.3f -> %.3f'%(n,imagemap[n].min(),imagemap[n].max()))
         im.axis('off')
         ims.append(im)
         
-    ax=plt.subplot(gs[1,numimages])
+    
+#    ax=fig.add_subplot(gs[1,numimages])
+    ax=plt.subplot2grid(gridshape, (3, 1),colspan=gridshape[1]-1)
     ax=plotSystemInfo(ax)
-        
+    ims.append(ax)
+    
     return fig,[graph]+ims
     
     
 if __name__=='__main__':
-#    im1=np.random.rand(5,10)
-#    im2=np.random.rand(15,15)
-#    plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1,'im2':im2})
+    im1=np.random.rand(5,10)
+    im2=np.random.rand(15,15)
+    fig=plt.figure(figsize=(8,6))
+    
+    f,ims=plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1,'im2':im2,'im3':im2},fig=fig)
+#    plt.tight_layout(pad=0.0, w_pad=0.0, h_pad=0.0)
     
 #    print(getNvidiaInfo())
 #    print(getMemInfo())
@@ -252,4 +271,4 @@ if __name__=='__main__':
 #    for cpu,load in getCpuInfo().items():
 #        print(cpu,load)
 
-    ax=plotSystemInfo()
+    #ax=plotSystemInfo()
