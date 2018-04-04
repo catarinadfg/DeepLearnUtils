@@ -43,7 +43,7 @@ def getMemInfo(src='/proc/meminfo'):
         return dict(map(split,o))
 
 
-def getCpuInfo(src='/proc/stat',waitTime=0.1):
+def getCpuInfo(src='/proc/stat',waitTime=0.05):
     '''Use info in `src' to generate a dictionary mapping CPUs to (load%,idle time, total time) tuples.'''
     def getCpuTimes():
         with open(src) as o:
@@ -156,18 +156,16 @@ def viewImages(img,mask,maskval=0.25):
 def plotSystemInfo(ax=None):
     ax=ax or plt.subplot()
     cols=[]
-    labels=[]
+    labels=['CPU Load','Mem Alloc']
     colors=['r','b']
     
     cpu=getCpuInfo()
     cols.append(cpu['cpu'][0])
-    labels.append('CPU Load')
     
     mem=getMemInfo()
     
     allocperc=int((1.0-float(mem['MemAvailable'])/mem['MemTotal'])*100)
     cols.append(allocperc)
-    labels.append('Mem Alloc')
     
     gpu=getNvidiaInfo()
     
@@ -212,21 +210,13 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     
     gridshape=(4, numimages)
     
-    if fig:
+    if fig is not None:
         fig.clf()
     else:
         fig = plt.figure(figsize=(20,16))
     
-    #fig.subplots_adjust(wspace=1, hspace=0.3)
     graph= plt.subplot2grid(gridshape, (0, 0),colspan=gridshape[1])
-    
-    
-#    gs = gridspec.GridSpec(2,numimages+1,height_ratios=[2, 3],
-#                           width_ratios=[2]*numimages+[1],wspace=0.1, hspace=0.3)
-#    
-#    graph=fig.add_subplot(gs[0,:])
-#    
-#    
+   
     for n,v in graphmap.items():
         graph.plot(v,label='%s = %.3f '%(n,v[-1]))
 
@@ -237,16 +227,14 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     graph.grid(True,'both')
     graph.xaxis.set_major_locator(MaxNLocator(integer=True))
     
-    ims=[]
+    ims=[graph]
     for i,n in enumerate(imagemap):
-        #im=fig.add_subplot(gs[1,i])
         im=plt.subplot2grid(gridshape, (1, i),rowspan=2)
         
         im.imshow(np.squeeze(imagemap[n]),cmap='gray')
         im.set_title('%s = %.3f -> %.3f'%(n,imagemap[n].min(),imagemap[n].max()))
         im.axis('off')
         ims.append(im)
-        
     
     ax=plt.subplot2grid(gridshape, (3, 0),rowspan=1,colspan=gridshape[1])
     ax=plotSystemInfo(ax)
@@ -254,7 +242,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     
     plt.tight_layout(pad=0.0, w_pad=0.0, h_pad=0.0)
     
-    return fig,[graph]+ims
+    return fig,ims
     
     
 if __name__=='__main__':

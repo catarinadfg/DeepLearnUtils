@@ -74,7 +74,7 @@ class NetworkManager(object):
         return arr
 
     def train(self,inputfunc,steps,savesteps=5):
-        self.log('===================================Starting===================================')
+        self.log('=================================Starting=================================')
         start=time.time()
         
         try:
@@ -84,7 +84,7 @@ class NetworkManager(object):
             self.log('Params:',self.params)
             self.log('Savedir:',self.savedir)
             
-            for s in range(steps):
+            for s in range(1,steps+1):
                 self.log('Timestep',s,'/',steps)
                 
                 self.traininputs=[self.convertArray(arr) for arr in inputfunc()]                
@@ -101,7 +101,7 @@ class NetworkManager(object):
                 self.updateStep(s,lossval)
                 self.params['loss']=lossval
             
-                if self.savedir and savesteps>0 and ((s+1)%(steps//savesteps))==0:
+                if self.savedir and savesteps>0 and (s%(steps//savesteps))==0:
                     self.save(os.path.join(self.savedir,'net_%.5i.pth'%s))
                     
         except Exception as e:
@@ -112,22 +112,40 @@ class NetworkManager(object):
             self.log('Params:',self.params)
             self.log('===================================Done===================================')
 
-    def evaluate(self,inputs,batchSize=1):
+    def evaluate(self,inputs,batchSize=2):
+        self.log('================================Evaluating================================')
+        start=time.time()
+        
+        try:
+            inputlen=inputs[0].shape[0]
+            losses=[]
+            
+            for i in range(0,inputlen,batchSize):
+                self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
+                self.netoutputs=self.netForward()
+                loss=self.lossForward()
+                losses.append(loss.data[0])
+        except Exception as e:
+            self.log(e)
+            raise
+        finally:
+            self.log('Total time (s): %s'%(time.time()-start))
+            self.log('Params:',self.params)
+            self.log('Losses:',losses)
+            self.log('===================================Done===================================')
+            
+        return losses
+    
+    def infer(self,inputs,batchSize=2):
         inputlen=inputs[0].shape[0]
-        losses=[]
+        results=[]
         
         for i in range(0,inputlen,batchSize):
             self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
             self.netoutputs=self.netForward()
-            loss=self.lossForward()
-            losses.append(loss.data[0])
-            
-        return losses
-    
-    def infer(self,inputs):
-        self.traininputs=[self.convertArray(arr) for arr in inputs]
-        self.netoutputs=self.netForward()
-        return [arr.cpu().data.numpy() for arr in self.netoutputs]
+            results.append(tuple(arr.cpu().data.numpy() for arr in self.netoutputs))
+        
+        return results
         
     
 class BinarySegmentMgr(NetworkManager):
@@ -138,11 +156,30 @@ class BinarySegmentMgr(NetworkManager):
         super(BinarySegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
     
     def netForward(self):
-        images,_=self.traininputs
+        images=self.traininputs[0]
         return self.net(images)
     
     def lossForward(self):
-        _,masks=self.traininputs
-        logits,_=self.netoutputs
+        masks=self.traininputs[-1]
+        logits=self.netoutputs[0]
         return self.loss(logits,masks)
+    
+    
+class ImageClassifierMgr(NetworkManager):
+    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,params={}):
+        opt=torch.optim.Adam(net.parameters(),lr=params['learningRate'])
+        
+        if loss is None:
+            loss=torch.nn.MSELoss()
+        
+        super(ImageClassifierMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
+        
+    def netForward(self):
+        images=self.traininputs[0]
+        return self.net(images)
+    
+    def lossForward(self):
+        values=self.traininputs[-1]
+        preds=self.netoutputs
+        return self.loss(preds,values)
     
