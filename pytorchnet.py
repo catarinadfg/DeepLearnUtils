@@ -126,9 +126,7 @@ class Unet2D(nn.Module):
             
             self.decodes.append((up,x))
         
-        
     def forward(self,x):
-
         elist=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
 
         # encode stage

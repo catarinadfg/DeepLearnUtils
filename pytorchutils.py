@@ -14,6 +14,16 @@ def convertAug(images,out):
     return images.transpose([2,0,1]), out[np.newaxis,...]
 
 
+def iouMetric(masks,preds,smooth=1e-5):
+    masks=masks==masks.max()
+    preds=preds==preds.max()
+    
+    inter=masks*preds
+    union=masks+preds
+    
+    return 1.0-(inter.sum()+smooth)/(union.sum()+smooth)
+
+
 class NetworkManager(object):
     def __init__(self,net,opt,loss,isCuda=True,savedirprefix=None,params={}):
         self.net=net
@@ -47,6 +57,9 @@ class NetworkManager(object):
                 print(msg,file=o)
                 
     def updateStep(self,step,steploss):
+        pass
+    
+    def saveStep(self,step,steploss):
         pass
     
     def netForward(self):
@@ -103,6 +116,7 @@ class NetworkManager(object):
             
                 if self.savedir and savesteps>0 and (s%(steps//savesteps))==0:
                     self.save(os.path.join(self.savedir,'net_%.5i.pth'%s))
+                    self.saveStep(s,lossval)
                     
         except Exception as e:
             self.log(e)
@@ -137,6 +151,7 @@ class NetworkManager(object):
         return losses
     
     def infer(self,inputs,batchSize=2):
+        assert all(i.shape[0]==inputs[0].shape[0] for i in inputs)
         inputlen=inputs[0].shape[0]
         results=[]
         
