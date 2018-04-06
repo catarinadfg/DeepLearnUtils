@@ -1,5 +1,6 @@
 
 from __future__ import print_function,division
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn.modules.loss import _Loss
@@ -43,6 +44,25 @@ class BinaryDiceLoss(_Loss):
         return score
     
 
+class Convolution2D(nn.Module):
+    def __init__(self,inChannels,outChannels,strides=1,kernelsize=3):
+        super(Convolution2D,self).__init__()
+        self.inChannels=inChannels
+        self.outChannels=outChannels
+        
+        padding=[(k-1)//2 for k in np.asarray([kernelsize]).flat]
+        
+        self.conv=nn.Sequential(
+            nn.BatchNorm2d(inChannels), 
+            nn.modules.PReLU(),
+            nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding)
+        )
+        
+    def forward(self,x):
+        return self.conv(x)
+        
+
+
 class ResidualUnit2D(nn.Module):
     def __init__(self, inChannels,outChannels,strides=1,kernelsize=3,subunits=1):
         super(ResidualUnit2D,self).__init__()
@@ -60,6 +80,8 @@ class ResidualUnit2D(nn.Module):
                 nn.modules.PReLU(),
                 nn.Conv2d(schannels,outChannels,kernel_size=kernelsize,stride=sstrides,padding=padding)
             ]
+            #seq.append(Convolution2D(schannels,outChannel,sstrides,kernelsize))
+            
             schannels=outChannels # after first loop set the channels and strides to what they should be for subsequent units
             sstrides=1
             
