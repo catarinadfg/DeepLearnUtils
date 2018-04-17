@@ -7,7 +7,7 @@ import datetime
 import torch
 import pytorchnet
 import numpy as np
-
+from collections import Iterable
 
 def convertAug(images,out):
     '''Convert `images' and `out' to CH[W] format, assuming `images' is HWC and `out' is H[W].'''
@@ -33,6 +33,7 @@ class NetworkManager(object):
         self.loss=loss
         self.traininputs=None
         self.netoutputs=None
+        self.lossoutput=None
         
         self.savedir=None
         self.logfilename='train.log'
@@ -60,6 +61,9 @@ class NetworkManager(object):
         pass
     
     def saveStep(self,step,steploss):
+        pass
+    
+    def evalStep(self,index,steploss,results):
         pass
     
     def netForward(self):
@@ -103,13 +107,13 @@ class NetworkManager(object):
                 self.traininputs=[self.convertArray(arr) for arr in inputfunc()]                
                 self.netoutputs=self.netForward()
             
-                loss=self.lossForward()
+                self.lossoutput=self.lossForward()
                 
                 self.opt.zero_grad()
-                loss.backward()
+                self.lossoutput.backward()
                 self.opt.step()
             
-                lossval=loss.data[0]
+                lossval=self.lossoutput.data[0]
                 self.log('Loss:',lossval)
                 self.updateStep(s,lossval)
                 self.params['loss']=lossval
@@ -133,22 +137,34 @@ class NetworkManager(object):
         try:
             inputlen=inputs[0].shape[0]
             losses=[]
+            results=[]
             
             for i in range(0,inputlen,batchSize):
                 self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
                 self.netoutputs=self.netForward()
-                loss=self.lossForward()
-                losses.append(loss.data[0])
+                self.lossoutput=self.lossForward()
+                losses.append(self.lossoutput.data[0])
+                
+                #if evalfunc is not None:
+                #    results.append(evalfunc(i,self.traininputs,self.netoutputs))
+                self.evalStep(i,losses[-1],results)
+                # clear stored variables to free graph
+                self.traininputs=None
+                self.netoutputs=None
+                self.lossoutput=None
+                
         except Exception as e:
             self.log(e)
             raise
         finally:
             self.log('Total time (s): %s'%(time.time()-start))
-            self.log('Params:',self.params)
             self.log('Losses:',losses)
+            #self.params['EvalLosses']=losses
+            #self.params['EvalResults']=results
+                
             self.log('===================================Done===================================')
             
-        return losses
+        return losses,results
     
     def infer(self,inputs,batchSize=2):
         assert all(i.shape[0]==inputs[0].shape[0] for i in inputs)
@@ -158,7 +174,14 @@ class NetworkManager(object):
         for i in range(0,inputlen,batchSize):
             self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
             self.netoutputs=self.netForward()
-            results.append(tuple(arr.cpu().data.numpy() for arr in self.netoutputs))
+            
+            if isinstance(self.netoutputs,Iterable):
+                results.append(tuple(arr.cpu().data.numpy() for arr in self.netoutputs))
+            else:
+                results.append(self.netoutputs.cpu().data.numpy())
+                
+            self.traininputs=None
+            self.netoutputs=None
         
         return results
         

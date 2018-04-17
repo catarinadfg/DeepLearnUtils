@@ -14,6 +14,13 @@ from torch.nn.modules.loss import _Loss
 #    return inp
 
 
+def samePadding(kernelsize):
+    if isinstance(kernelsize,tuple):
+        return tuple((k-1)//2 for k in kernelsize)
+    else:
+        return (kernelsize-1)//2
+    
+
 class BinaryDiceLoss(_Loss):
     def forward(self, source, target, smooth=1e-5):
 #        axis = list(range(2, len(source.shape))) # for BCWH sum over WH
@@ -49,50 +56,38 @@ class Convolution2D(nn.Module):
         super(Convolution2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
-        
-        padding=[(k-1)//2 for k in np.asarray([kernelsize]).flat]
+        padding=samePadding(kernelsize)
         
         self.conv=nn.Sequential(
-            nn.BatchNorm2d(inChannels), 
-            nn.modules.PReLU(),
-            nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding)
+            nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding),
+            nn.BatchNorm2d(outChannels), 
+            nn.modules.PReLU()
         )
         
     def forward(self,x):
         return self.conv(x)
         
 
-
 class ResidualUnit2D(nn.Module):
-    def __init__(self, inChannels,outChannels,strides=1,kernelsize=3,subunits=1):
+    def __init__(self, inChannels,outChannels,strides=1,kernelsize=3,subunits=2):
         super(ResidualUnit2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
         
-        padding=(kernelsize-1)//2 
+        padding=samePadding(kernelsize)
         seq=[]
         schannels=inChannels
         sstrides=strides
         
         for su in range(subunits):
-            seq+=[
-                nn.BatchNorm2d(schannels), 
-                nn.modules.PReLU(),
-                nn.Conv2d(schannels,outChannels,kernel_size=kernelsize,stride=sstrides,padding=padding)
-            ]
-            #seq.append(Convolution2D(schannels,outChannel,sstrides,kernelsize))
-            
+            seq.append(Convolution2D(schannels,outChannels,sstrides,kernelsize))
             schannels=outChannels # after first loop set the channels and strides to what they should be for subsequent units
             sstrides=1
             
         self.conv=nn.Sequential(*seq) # apply this sequence of operations to the input
         
-        # apply this convolution to the input to change the number of output channels to match that coming from self.conv
-        self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=1,padding=padding)
-        
-        # if the input was strided down then self.res should apply maxpool to the input first before changing output channels
-        if strides!=1: 
-            self.residual=nn.Sequential(nn.MaxPool2d(kernelsize,strides,padding),self.residual)
+        # apply this convolution to the input to change the number of output channels and output size to match that coming from self.conv
+        self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding)
         
     def forward(self,x):
         res=self.residual(x) # create the additive residual from x
@@ -170,4 +165,3 @@ class Unet2D(nn.Module):
             preds=x.max(1)[1]
 
         return x, preds
-    
