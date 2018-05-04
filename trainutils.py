@@ -3,13 +3,22 @@ from __future__ import division, print_function
 import subprocess,re,time
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 from matplotlib.ticker import MaxNLocator
 
 
 gpunames=re.compile('\|\s+\d+\s+([a-zA-Z][^\|]+) O[nf][f ]')
 gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
 gpuload=re.compile('MiB\s*\|\s*(\d+)\%')
+
+
+def iouMetric(masks,preds,smooth=1e-5):
+    masks=masks==masks.max()
+    preds=preds==preds.max()
+    
+    inter=masks*preds
+    union=masks+preds
+    
+    return 1.0-(inter.sum()+smooth)/(union.sum()+smooth)
 
 
 def getNvidiaInfo(proc='nvidia-smi'):

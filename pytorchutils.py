@@ -14,16 +14,6 @@ def convertAug(images,out):
     return images.transpose([2,0,1]), out[np.newaxis,...]
 
 
-def iouMetric(masks,preds,smooth=1e-5):
-    masks=masks==masks.max()
-    preds=preds==preds.max()
-    
-    inter=masks*preds
-    union=masks+preds
-    
-    return 1.0-(inter.sum()+smooth)/(union.sum()+smooth)
-
-
 class NetworkManager(object):
     def __init__(self,net,opt,loss,isCuda=True,savedirprefix=None,params={}):
         self.net=net
@@ -119,7 +109,7 @@ class NetworkManager(object):
                 self.params['loss']=lossval
             
                 if self.savedir and savesteps>0 and (s%(steps//savesteps))==0:
-                    self.save(os.path.join(self.savedir,'net_%.5i.pth'%s))
+                    self.save(os.path.join(self.savedir,'net_%.6i.pth'%s))
                     self.saveStep(s,lossval)
                     
         except Exception as e:
@@ -188,7 +178,7 @@ class NetworkManager(object):
     
 class BinarySegmentMgr(NetworkManager):
     def __init__(self,net,isCuda=True,savedirprefix=None,params={}):
-        opt=torch.optim.Adam(net.parameters(),lr=params['learningRate'])
+        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
         loss=pytorchnet.BinaryDiceLoss()
         
         super(BinarySegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
@@ -205,7 +195,7 @@ class BinarySegmentMgr(NetworkManager):
     
 class ImageClassifierMgr(NetworkManager):
     def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,params={}):
-        opt=torch.optim.Adam(net.parameters(),lr=params['learningRate'])
+        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
         
         if loss is None:
             loss=torch.nn.MSELoss()
