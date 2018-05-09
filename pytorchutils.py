@@ -14,6 +14,11 @@ def convertAug(images,out):
     return images.transpose([2,0,1]), out[np.newaxis,...]
 
 
+def convertFirst(images,out):
+    '''Convert `images' from HWC to CHW format.'''
+    return images.transpose([2,0,1]), out
+
+
 class NetworkManager(object):
     def __init__(self,net,opt,loss,isCuda=True,savedirprefix=None,params={}):
         self.net=net
@@ -79,6 +84,9 @@ class NetworkManager(object):
             arr=arr.cuda()
             
         return arr
+    
+    def toNumpy(self,arr):
+        return arr.cpu().data.numpy()
 
     def train(self,inputfunc,steps,savesteps=5):
         self.log('=================================Starting=================================')

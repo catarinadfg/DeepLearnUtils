@@ -108,13 +108,12 @@ def zoomMaskAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
     return _copyzoom(img,zx,zy),tempmask
 
     
-def transposeBothAugment(img,mask,prob=0.5):
+def transposeBothAugment(img,out,prob=0.5):
     '''Transpose both inputs.'''
     if randChoice(prob): # `prob' chance of using this augment
-        return img,mask
-    
+        return img,out
 
-    return np.swapaxes(img,0,1),np.swapaxes(mask,0,1)
+    return np.swapaxes(img,0,1),np.swapaxes(out,0,1)
 
 
 def flipBothAugment(img,out,prob=0.5):
@@ -164,17 +163,26 @@ def randomCropBothAugment(img,out,box=(64,64)):
     return img[y-h2:y+h2,x-w2:x+w2],out[y-h2:y+h2,x-w2:x+w2]
 
 
+def normalizeImageAugment(img,out):
+    '''Normalize image input.'''
+    return rescaleArray(img),out
+
+
 def shiftImgAugment(img,out,prob=0.5):
     '''Shift `img' by a random amount and leave `out' unchanged.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,out
     
-    x,y=img.shape[:2]
-    shiftx=random.randint(-x/2,x/2)
-    shifty=random.randint(-y/2,y/2)
+    try:
+        y,x=img.shape[:2]
+        shifty=random.randint(-y//2,y//2)
+        shiftx=random.randint(-x//2,x//2)
+    except:
+        print(y,x)
+        raise
     ishift0=tuple(0 for _ in range(2,img.ndim))
     
-    return shift(img,(shiftx,shifty)+ishift0),out
+    return shift(img,(shifty,shiftx)+ishift0),out
     
     
 def rotateImgAugment(img,out,prob=0.5):
@@ -215,7 +223,6 @@ def transposeImgAugment(img,out,prob=0.5):
     '''Transpose `img' and leave `out' unchanged.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,out
-    
 
     return np.swapaxes(img,0,1),out
 
@@ -259,7 +266,7 @@ class TrainImageSource(object):
     '''
     def __init__(self,images,outputs,augments=[],numthreads=None):
         '''
-        Initialize the queue with `images' as the image list and `outputs' as the list fo associated per-image out values.
+        Initialize the queue with `images' as the image list and `outputs' as the list of associated per-image out values.
         The `images' array is expected to be in BHWC or BDHWC index ordering.
         '''
         assert images.shape[0]==outputs.shape[0],'%r != %r'%(images.shape[0],outputs.shape[0])
@@ -268,7 +275,10 @@ class TrainImageSource(object):
         self.outputs=outputs
         self.numthreads=numthreads
         self.indices=list(range(self.images.shape[0]))
+        self.probs=np.ones((self.images.shape[0],),np.float32)
         self.augments=list(augments)
+        self.batchthread=None
+        self.batchqueue=None
         
     def getBatch(self,numimgs):
         imgtest,outtest=self._generateImagePair()
@@ -276,12 +286,16 @@ class TrainImageSource(object):
         outs=np.ndarray((numimgs,)+outtest.shape,outtest.dtype)
         numthreads=min(numimgs,self.numthreads or multiprocessing.cpu_count())
         threads=[]
+        
+        chosenindices=np.random.choice(self.indices,numimgs,p=self.probs/self.probs.sum())
+        
+        indexpairs=np.stack([np.arange(numimgs),chosenindices],axis=1)
 
         def _generateForIndices(indices):
-            for n in indices:
-                imgs[n],outs[n]=self._generateImagePair()
+            for n,c in indices:
+                imgs[n],outs[n]=self._generateImagePair(c)
                 
-        for indices in np.array_split(np.arange(numimgs),numthreads):
+        for indices in np.array_split(indexpairs,numthreads):
             t=threading.Thread(target=_generateForIndices,args=(indices,))
             t.start()
             threads.append(t)
@@ -291,8 +305,8 @@ class TrainImageSource(object):
         
         return imgs,outs
     
-    def _generateImagePair(self):
-        randomindex=random.choice(self.indices)
+    def _generateImagePair(self,index=None):
+        randomindex=index if index is not None else random.choice(self.indices)
         img=self.images[randomindex]
         out=self.outputs[randomindex]
         
@@ -303,16 +317,17 @@ class TrainImageSource(object):
         return img,out
     
     def getAsyncFunc(self,numimgs,queueLength=1):
-        batches=queue.Queue(queueLength)
+        if self.batchqueue is None:
+            self.batchqueue=queue.Queue(queueLength)
+            
+            def _batchThread():
+                while True:
+                        self.batchqueue.put(self.getBatch(numimgs))
+                    
+            self.batchthread=threading.Thread(target=_batchThread)
+            self.batchthread.daemon=True
+            self.batchthread.start()
         
-        def _batchThread():
-            while True:
-                    batches.put(self.getBatch(numimgs))
-                
-        batchthread=threading.Thread(target=_batchThread)
-        batchthread.daemon=True
-        batchthread.start()
-        
-        return batches.get
+        return self.batchqueue.get
     
     
