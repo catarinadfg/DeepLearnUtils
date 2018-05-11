@@ -168,15 +168,15 @@ def normalizeImageAugment(img,out):
     return rescaleArray(img),out
 
 
-def shiftImgAugment(img,out,prob=0.5):
+def shiftImgAugment(img,out,prob=0.5,dimfract=2):
     '''Shift `img' by a random amount and leave `out' unchanged.'''
     if randChoice(prob): # `prob' chance of using this augment
         return img,out
     
     try:
         y,x=img.shape[:2]
-        shifty=random.randint(-y//2,y//2)
-        shiftx=random.randint(-x//2,x//2)
+        shifty=random.randint(-y//dimfract,y//dimfract)
+        shiftx=random.randint(-x//dimfract,x//dimfract)
     except:
         print(y,x)
         raise

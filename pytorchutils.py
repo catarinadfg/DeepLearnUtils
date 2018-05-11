@@ -7,7 +7,7 @@ import datetime
 import torch
 import pytorchnet
 import numpy as np
-from collections import Iterable
+
 
 def convertAug(images,out):
     '''Convert `images' and `out' to CH[W] format, assuming `images' is HWC and `out' is H[W].'''
@@ -173,10 +173,10 @@ class NetworkManager(object):
             self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
             self.netoutputs=self.netForward()
             
-            if isinstance(self.netoutputs,Iterable):
-                results.append(tuple(arr.cpu().data.numpy() for arr in self.netoutputs))
+            if isinstance(self.netoutputs,(tuple,list)):
+                results.append(tuple(map(self.toNumpy, self.netoutputs)))
             else:
-                results.append(self.netoutputs.cpu().data.numpy())
+                results.append(self.toNumpy(self.netoutputs))
                 
             self.traininputs=None
             self.netoutputs=None

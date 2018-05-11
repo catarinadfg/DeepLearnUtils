@@ -37,7 +37,8 @@ class Convolution2D(nn.Module):
         
         self.conv=nn.Sequential(
             nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding),
-            nn.BatchNorm2d(outChannels), 
+            #nn.BatchNorm2d(outChannels), 
+            nn.InstanceNorm2d(outChannels),
             nn.modules.PReLU()
         )
         
