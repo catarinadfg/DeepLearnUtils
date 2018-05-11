@@ -31,16 +31,16 @@ class BinaryDiceLoss(_Loss):
     
 
 class Convolution2D(nn.Module):
-    def __init__(self,inChannels,outChannels,strides=1,kernelsize=3):
+    def __init__(self,inChannels,outChannels,strides=1,kernelsize=3,useInstanceNorm=True):
         super(Convolution2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
         padding=samePadding(kernelsize)
+        normfunc=nn.InstanceNorm2d if useInstanceNorm else nn.BatchNorm2d
         
         self.conv=nn.Sequential(
             nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding),
-            #nn.BatchNorm2d(outChannels), 
-            nn.InstanceNorm2d(outChannels),
+            normfunc(outChannels), 
             nn.modules.PReLU()
         )
         
@@ -49,7 +49,7 @@ class Convolution2D(nn.Module):
         
 
 class ResidualUnit2D(nn.Module):
-    def __init__(self, inChannels,outChannels,strides=1,kernelsize=3,subunits=2):
+    def __init__(self, inChannels,outChannels,strides=1,kernelsize=3,subunits=2,useInstanceNorm=True):
         super(ResidualUnit2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
@@ -60,7 +60,7 @@ class ResidualUnit2D(nn.Module):
         sstrides=strides
         
         for su in range(subunits):
-            seq.append(Convolution2D(schannels,outChannels,sstrides,kernelsize))
+            seq.append(Convolution2D(schannels,outChannels,sstrides,kernelsize,useInstanceNorm))
             schannels=outChannels # after first loop set the channels and strides to what they should be for subsequent units
             sstrides=1
             

@@ -43,9 +43,9 @@ def zeroMargins(img,margin):
     return img.max()>img.min() and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
 
 
-def shiftMaskAugment(img,mask,margin=5,prob=0.5):
+def shiftMaskAugment(img,mask,margin=5,prob=0.5,dimfract=2,order=3,maxcount=10):
     '''Return the image/mask pair shifted by a random amount with the mask kept within `margin' pixels of the edges.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,mask
     
     x,y=mask.shape[:2]
@@ -57,16 +57,20 @@ def shiftMaskAugment(img,mask,margin=5,prob=0.5):
     mshift0=tuple(0 for _ in range(2,mask.ndim))
     
     while smask is None or not zeroMargins(smask,margin):
-        shiftx=random.randint(-x/2,x/2)
-        shifty=random.randint(-y/2,y/2)
-        smask=shift(mask1,(shiftx,shifty)+mshift0)
+        shiftx=random.randint(-x/dimfract,x/dimfract)
+        shifty=random.randint(-y/dimfract,y/dimfract)
+        smask=shift(mask1,(shiftx,shifty)+mshift0,order=order)
+        
+        maxcount-=1
+        if maxcount<=0:
+            return img,mask
 
     return shift(img,(shiftx,shifty)+ishift0),shift(mask,(shiftx,shifty)+mshift0)
     
     
 def rotateMaskAugment(img,mask,margin=5,prob=0.5):
     '''Return the image/mask pair rotated by a random amount with the mask kept within `margin' pixels of the edges.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,mask
     
     angle=None
@@ -81,7 +85,7 @@ def rotateMaskAugment(img,mask,margin=5,prob=0.5):
     
 def zoomMaskAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
     '''Return the image/mask pair zoomed by a random amount with the mask kept within `margin' pixels of the edges.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,mask
     
     def _copyzoom(im,zx,zy):
@@ -113,7 +117,7 @@ def zoomMaskAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
     
 def transposeBothAugment(img,out,prob=0.5):
     '''Transpose both inputs.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,out
 
     return np.swapaxes(img,0,1),np.swapaxes(out,0,1)
@@ -121,7 +125,7 @@ def transposeBothAugment(img,out,prob=0.5):
 
 def flipBothAugment(img,out,prob=0.5):
     '''Flip both inputs with a random choice of up-down or left-right.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,out
     
     if randChoice():
@@ -132,7 +136,7 @@ def flipBothAugment(img,out,prob=0.5):
         
 def rot90BothAugment(img,out,prob=0.5):
     '''Rotate both inputs a random choice of quarter, half, or three-quarter circle rotations.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,out
     
     r=random.random()
@@ -173,7 +177,7 @@ def normalizeImageAugment(img,out):
 
 def shiftImgAugment(img,out,prob=0.5,dimfract=2):
     '''Shift `img' by a random amount and leave `out' unchanged.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,out
     
     try:
@@ -190,7 +194,7 @@ def shiftImgAugment(img,out,prob=0.5,dimfract=2):
     
 def rotateImgAugment(img,out,prob=0.5):
     '''Rotate `img' by a random amount and leave `out' unchanged.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,out
     
     angle=random.random()*360
@@ -200,7 +204,7 @@ def rotateImgAugment(img,out,prob=0.5):
     
 def zoomImgAugment(img,out,zoomrange=0.2,prob=0.5):
     '''Zoom `img' by a random amount and leave `out' unchanged.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,out
     
     z=zoomrange-random.random()*zoomrange*2
@@ -224,7 +228,7 @@ def zoomImgAugment(img,out,zoomrange=0.2,prob=0.5):
 
 def transposeImgAugment(img,out,prob=0.5):
     '''Transpose `img' and leave `out' unchanged.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,out
 
     return np.swapaxes(img,0,1),out
@@ -232,7 +236,7 @@ def transposeImgAugment(img,out,prob=0.5):
 
 def flipImgAugment(img,out,prob=0.5):
     '''Flip `img' with a random choice of up-down or left-right and leave `out' unchanged.'''
-    if randChoice(prob): # `prob' chance of using this augment
+    if not randChoice(prob): # `prob' chance of using this augment
         return img,out
     
     if randChoice():
