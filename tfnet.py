@@ -1,3 +1,6 @@
+# DeepLearnUtils 
+# Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
+
 
 from __future__ import division, print_function
 import unittest

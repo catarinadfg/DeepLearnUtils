@@ -1,3 +1,6 @@
+# DeepLearnUtils 
+# Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
+
 #! /bin/bash
 
 # these are paths to meta graph files that I have for my networks, replace these with your own to start the server

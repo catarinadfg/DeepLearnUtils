@@ -1,3 +1,6 @@
+# DeepLearnUtils 
+# Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
+
 '''
 This is a Eidolon script used to send the selected image object to a running instance of the SegServ server and then
 load the returned segmentation image. 

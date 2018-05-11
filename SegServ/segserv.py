@@ -1,3 +1,6 @@
+# DeepLearnUtils 
+# Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
+
 '''
 A simple Flask-based server for providing segmentation inference through a HTTP interface. 
 '''
