@@ -7,10 +7,19 @@ import os
 import glob
 import time
 import datetime
+
 import torch
 import pytorchnet
 import numpy as np
 
+
+if torch.__version__>='0.4':
+    def toItem(t):
+        return t.item()
+else:
+    def toItem(t):
+        return t.data[0]
+    
 
 def convertAug(images,out):
     '''Convert `images' and `out' to CH[W] format, assuming `images' is HWC and `out' is H[W].'''
@@ -20,6 +29,10 @@ def convertAug(images,out):
 def convertFirst(images,out):
     '''Convert `images' from HWC to CHW format.'''
     return images.transpose([2,0,1]), out
+
+
+def convertBoth(images,out):
+    return images.transpose([2,0,1]), out.transpose([2,0,1])
 
 
 class NetworkManager(object):
@@ -52,7 +65,7 @@ class NetworkManager(object):
         if isCuda:
             self.net=self.net.cuda()
 
-        if savedirprefix:
+        if savedirprefix is not None:
             if os.path.exists(savedirprefix):
                 self.savedir=savedirprefix
                 self.reload()
@@ -161,7 +174,7 @@ class NetworkManager(object):
                 self.lossoutput.backward()
                 self.opt.step()
             
-                lossval=self.lossoutput.data[0]
+                lossval=toItem(self.lossoutput)
                 self.log('Loss:',lossval)
                 self.updateStep(s,lossval)
                 self.params['loss']=lossval
@@ -202,7 +215,7 @@ class NetworkManager(object):
                 self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
                 self.netoutputs=self.netForward()
                 self.lossoutput=self.lossForward()
-                losses.append(self.lossoutput.data[0])
+                losses.append(toItem(self.lossoutput))
                 
                 self.evalStep(i,losses[-1],results)
                 # clear stored variables to free graph
@@ -274,13 +287,32 @@ class BinarySegmentMgr(NetworkManager):
         logits=self.netoutputs[0]
         return self.loss(logits,masks)
     
+ 
+class AutoEncoderMgr(NetworkManager):
+    '''
+    Basic manager subtype for binary segmentation, specifying Adam as the optimizer with params['learningRate'] used as
+    the learn rate, and a loss function defined as BinaryDiceLoss.
+    '''
+    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,params={}):
+        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
+        loss=loss if loss is not None else torch.nn.BCEWithLogitsLoss()
+        
+        super(AutoEncoderMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
+    
+    def netForward(self):
+        images=self.traininputs[0]
+        return self.net(images)
+    
+    def lossForward(self):
+        imgs=self.traininputs[-1]
+        logits=self.netoutputs[0]
+        return self.loss(logits,imgs)
+    
     
 class ImageClassifierMgr(NetworkManager):
     def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,params={}):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
-        
-        if loss is None:
-            loss=torch.nn.MSELoss()
+        loss=loss if loss is not None else torch.nn.MSELoss()
         
         super(ImageClassifierMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
         

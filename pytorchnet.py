@@ -2,6 +2,7 @@
 # Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
 
 from __future__ import print_function,division
+import collections
 import numpy as np
 import torch
 import torch.nn as nn
@@ -87,6 +88,39 @@ class UpsampleConcat2D(nn.Module):
         #print(x.shape,y.shape)
         return torch.cat([x,y],1)
 
+
+class AutoEncoder2D(nn.Module):
+    def __init__(self,inChannels,outChannels,channels,strides,kernelsize=3,numSubunits=2):
+        super(AutoEncoder2D,self).__init__()
+        assert len(channels)==len(strides)
+        self.inChannels=inChannels
+        self.outChannels=outChannels
+        self.channels=channels
+        self.strides=strides
+        self.kernelsize=kernelsize
+        self.numSubunits=numSubunits
+
+        modules=[]
+        echannel=inChannels
+        
+        # encoding stage
+        for i,(c,s) in enumerate(zip(channels,strides)):
+            modules.append(('encode_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits)))
+            echannel=c
+            
+        # decoding stage
+        for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[outChannels],strides[::-1])):
+            modules+=[
+                ('up_%i'%i,nn.ConvTranspose2d(echannel,echannel,self.kernelsize,s,1,s-1)),
+                ('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelsize,self.numSubunits))
+            ]
+            echannel=c
+
+        self.conv=nn.Sequential(collections.OrderedDict(modules))
+        
+    def forward(self,x):
+        return (self.conv(x),)
+    
 
 class Unet2D(nn.Module):
     def __init__(self,inChannels,numClasses,channels,strides,kernelsize=3,numSubunits=2):

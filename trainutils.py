@@ -230,7 +230,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     graph= plt.subplot2grid(gridshape, (0, 0),colspan=gridshape[1])
    
     for n,v in graphmap.items():
-        graph.plot(v,label='%s = %.3f '%(n,v[-1]))
+        graph.plot(v,label='%s = %.5f '%(n,v[-1]))
 
     graph.set_title(graphtitle)
     graph.set_yscale(yscale)
@@ -244,7 +244,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
         im=plt.subplot2grid(gridshape, (1, i),rowspan=2)
         
         im.imshow(np.squeeze(imagemap[n]),cmap='gray')
-        im.set_title('%s = %.3f -> %.3f'%(n,imagemap[n].min(),imagemap[n].max()))
+        im.set_title('%s = %.4f -> %.4f'%(n,imagemap[n].min(),imagemap[n].max()))
         im.axis('off')
         ims.append(im)
     
