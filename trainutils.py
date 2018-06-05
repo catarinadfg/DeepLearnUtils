@@ -225,7 +225,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     if fig is not None:
         fig.clf()
     else:
-        fig = plt.figure(figsize=(20,16))
+        fig = plt.figure(figsize=(20,10))
     
     graph= plt.subplot2grid(gridshape, (0, 0),colspan=gridshape[1])
    
