@@ -9,8 +9,9 @@ import threading
 import multiprocessing
 
 import numpy as np
-from scipy.ndimage import shift,zoom,rotate
+from scipy.ndimage import shift,zoom,rotate, geometric_transform
 from scipy.ndimage.filters import gaussian_filter
+from scipy.interpolate import interp2d 
 
 from trainutils import rescaleArray
     
@@ -57,8 +58,8 @@ def shiftMaskAugment(img,mask,margin=5,prob=0.5,dimfract=2,order=3,maxcount=10):
     mshift0=tuple(0 for _ in range(2,mask.ndim))
     
     while smask is None or not zeroMargins(smask,margin):
-        shiftx=random.randint(-x/dimfract,x/dimfract)
-        shifty=random.randint(-y/dimfract,y/dimfract)
+        shiftx=random.randint(-x//dimfract,x//dimfract)
+        shifty=random.randint(-y//dimfract,y//dimfract)
         smask=shift(mask1,(shiftx,shifty)+mshift0,order=order)
         
         maxcount-=1
@@ -68,7 +69,7 @@ def shiftMaskAugment(img,mask,margin=5,prob=0.5,dimfract=2,order=3,maxcount=10):
     return shift(img,(shiftx,shifty)+ishift0),shift(mask,(shiftx,shifty)+mshift0)
     
     
-def rotateMaskAugment(img,mask,margin=5,prob=0.5):
+def rotateMaskAugment(img,mask,margin=5,prob=0.5,maxcount=10):
     '''Return the image/mask pair rotated by a random amount with the mask kept within `margin' pixels of the edges.'''
     if not randChoice(prob): # `prob' chance of using this augment
         return img,mask
@@ -79,11 +80,15 @@ def rotateMaskAugment(img,mask,margin=5,prob=0.5):
     # choose a new angle so long as the mask is in the margins
     while angle is None or not zeroMargins(rotate(mask1,angle,reshape=False),margin):
         angle=random.random()*360
+        
+        maxcount-=1
+        if maxcount<=0:
+            return img,mask
     
     return rotate(img,angle,reshape=False),rotate(mask,angle,reshape=False)
     
     
-def zoomMaskAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
+def zoomMaskAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5,maxcount=10):
     '''Return the image/mask pair zoomed by a random amount with the mask kept within `margin' pixels of the edges.'''
     if not randChoice(prob): # `prob' chance of using this augment
         return img,mask
@@ -112,7 +117,43 @@ def zoomMaskAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5):
         zy=z+1.0+zoomrange*0.25-random.random()*zoomrange*0.5
         tempmask=_copyzoom(mask,zx,zy)
         
+        maxcount-=1
+        if maxcount<=0:
+            return img,mask
+        
     return _copyzoom(img,zx,zy),tempmask
+
+
+def _mapping(coords,interx,intery):
+    y,x=coords[:2]
+    dx=interx(x,y)
+    dy=intery(x,y)
+
+    return (y+dy,x+dx)+tuple(coords[2:])
+
+
+def deformBothAugment(img,mask,defrange=5,prob=0.5):
+    '''
+    Deform the central parts of the image/mask pair using interpolated randomized deformation. This defines a 4x4 grid
+    over the image, perturbs the central 4 points by a random multiple of `defrange' in either direction for both 
+    dimensions, and then transforms the image and mask based on this deformation field. 
+    '''
+    if not randChoice(prob): # `prob' chance of using this augment
+        return img,mask
+    
+    grid=np.zeros((4,4,2),int)
+    y=np.linspace(0,img.shape[0],grid.shape[0])
+    x=np.linspace(0,img.shape[1],grid.shape[1])
+    
+    grid[1:3,1:3,:]=2*defrange*np.random.random_sample((2,2,2))-defrange
+        
+    interx=interp2d(x,y,grid[...,0],'linear')
+    intery=interp2d(x,y,grid[...,1],'linear')
+    xargs=(interx,intery)
+        
+    iout=geometric_transform(img,_mapping,extra_arguments=xargs)
+    mout=geometric_transform(mask,_mapping,extra_arguments=xargs)
+    return iout,mout
 
     
 def transposeBothAugment(img,out,prob=0.5):

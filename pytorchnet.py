@@ -32,16 +32,16 @@ class BinaryDiceLoss(_Loss):
     
 
 class Convolution2D(nn.Module):
-    def __init__(self,inChannels,outChannels,strides=1,kernelsize=3,useInstanceNorm=True):
+    def __init__(self,inChannels,outChannels,strides=1,kernelsize=3,normalizeFunc=None):
         super(Convolution2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
         padding=samePadding(kernelsize)
-        normfunc=nn.InstanceNorm2d if useInstanceNorm else nn.BatchNorm2d
+        normalizeFunc=normalizeFunc or nn.InstanceNorm2d #if useInstanceNorm else nn.BatchNorm2d
         
         self.conv=nn.Sequential(
             nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding),
-            normfunc(outChannels),#,track_running_stats=True), 
+            normalizeFunc(outChannels),#,track_running_stats=True), 
             nn.modules.PReLU()
         )
         
@@ -50,7 +50,7 @@ class Convolution2D(nn.Module):
         
 
 class ResidualUnit2D(nn.Module):
-    def __init__(self, inChannels,outChannels,strides=1,kernelsize=3,subunits=2,useInstanceNorm=True):
+    def __init__(self, inChannels,outChannels,strides=1,kernelsize=3,subunits=2,normalizeFunc=None):
         super(ResidualUnit2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
@@ -61,7 +61,7 @@ class ResidualUnit2D(nn.Module):
         sstrides=strides
         
         for su in range(subunits):
-            seq.append(Convolution2D(schannels,outChannels,sstrides,kernelsize,useInstanceNorm))
+            seq.append(Convolution2D(schannels,outChannels,sstrides,kernelsize,normalizeFunc))
             schannels=outChannels # after first loop set the channels and strides to what they should be for subsequent units
             sstrides=1
             
@@ -90,7 +90,7 @@ class UpsampleConcat2D(nn.Module):
 
 
 class AutoEncoder2D(nn.Module):
-    def __init__(self,inChannels,outChannels,channels,strides,kernelsize=3,numSubunits=2,useInstanceNorm=True):
+    def __init__(self,inChannels,outChannels,channels,strides,kernelsize=3,numSubunits=2,normalizeFunc=None):
         super(AutoEncoder2D,self).__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
@@ -99,21 +99,21 @@ class AutoEncoder2D(nn.Module):
         self.strides=strides
         self.kernelsize=kernelsize
         self.numSubunits=numSubunits
-        self.useInstanceNorm=useInstanceNorm
+        self.normalizeFunc=normalizeFunc
         
         modules=[]
         echannel=inChannels
         
         # encoding stage
         for i,(c,s) in enumerate(zip(channels,strides)):
-            modules.append(('encode_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,self.useInstanceNorm)))
+            modules.append(('encode_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,self.normalizeFunc)))
             echannel=c
             
         # decoding stage
         for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[outChannels],strides[::-1])):
             modules+=[
                 ('up_%i'%i,nn.ConvTranspose2d(echannel,echannel,self.kernelsize,s,1,s-1)),
-                ('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelsize,self.numSubunits,self.useInstanceNorm))
+                ('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelsize,self.numSubunits,self.normalizeFunc))
             ]
             echannel=c
 
@@ -124,7 +124,7 @@ class AutoEncoder2D(nn.Module):
     
 
 class Unet2D(nn.Module):
-    def __init__(self,inChannels,numClasses,channels,strides,kernelsize=3,numSubunits=2,useInstanceNorm=True):
+    def __init__(self,inChannels,numClasses,channels,strides,kernelsize=3,numSubunits=2,normalizeFunc=None):
         super(Unet2D,self).__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
@@ -133,7 +133,7 @@ class Unet2D(nn.Module):
         self.strides=strides
         self.kernelsize=kernelsize
         self.numSubunits=numSubunits
-        self.useInstanceNorm=useInstanceNorm
+        self.normalizeFunc=normalizeFunc
         
         dchannels=[self.numClasses]+list(self.channels[:-1])
 
@@ -143,7 +143,7 @@ class Unet2D(nn.Module):
         
         # encode stage
         for c,s,dc in zip(self.channels,self.strides,dchannels):
-            x=ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,self.useInstanceNorm)
+            x=ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,self.normalizeFunc)
             
             setattr(self,'encode_%i'%(len(self.encodes)),x)
             self.encodes.insert(0,(x,dc,s,echannel))
@@ -152,7 +152,7 @@ class Unet2D(nn.Module):
         # decode stage
         for ex,c,s,ec in self.encodes:
             up=UpsampleConcat2D(ex.outChannels,ex.outChannels,s,self.kernelsize)
-            x=ResidualUnit2D(ex.outChannels+ec,c,1,self.kernelsize,1,self.useInstanceNorm)
+            x=ResidualUnit2D(ex.outChannels+ec,c,1,self.kernelsize,1,self.normalizeFunc)
             
             setattr(self,'up_%i'%(len(self.decodes)),up)
             setattr(self,'decode_%i'%(len(self.decodes)),x)
