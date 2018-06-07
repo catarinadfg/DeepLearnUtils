@@ -66,7 +66,7 @@ def shiftMaskAugment(img,mask,margin=5,prob=0.5,dimfract=2,order=3,maxcount=10):
         if maxcount<=0:
             return img,mask
 
-    return shift(img,(shiftx,shifty)+ishift0),shift(mask,(shiftx,shifty)+mshift0)
+    return shift(img,(shiftx,shifty)+ishift0,order=order),shift(mask,(shiftx,shifty)+mshift0,order=order)
     
     
 def rotateMaskAugment(img,mask,margin=5,prob=0.5,maxcount=10):
@@ -216,7 +216,7 @@ def normalizeImageAugment(img,out):
     return rescaleArray(img),out
 
 
-def shiftImgAugment(img,out,prob=0.5,dimfract=2):
+def shiftImgAugment(img,out,prob=0.5,dimfract=2,order=3):
     '''Shift `img' by a random amount and leave `out' unchanged.'''
     if not randChoice(prob): # `prob' chance of using this augment
         return img,out
@@ -230,7 +230,7 @@ def shiftImgAugment(img,out,prob=0.5,dimfract=2):
         raise
     ishift0=tuple(0 for _ in range(2,img.ndim))
     
-    return shift(img,(shifty,shiftx)+ishift0),out
+    return shift(img,(shifty,shiftx)+ishift0,order=order),out
     
     
 def rotateImgAugment(img,out,prob=0.5):

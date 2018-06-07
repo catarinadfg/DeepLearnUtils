@@ -322,6 +322,6 @@ class ImageClassifierMgr(NetworkManager):
     
     def lossForward(self):
         values=self.traininputs[-1]
-        preds=self.netoutputs
+        preds=self.netoutputs[0]
         return self.loss(preds,values)
     

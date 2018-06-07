@@ -89,6 +89,69 @@ class UpsampleConcat2D(nn.Module):
         return torch.cat([x,y],1)
 
 
+class ResidualClassifier(nn.Module):
+#    def __init__(self,inChannels,classes,channels,strides,kernelsize=3,numSubunits=2,normalizeFunc=None):
+#        assert len(channels)==len(strides)
+#        self.inChannels=inChannels
+#        self.classes=classes
+#        self.channels=channels
+#        self.strides=strides
+#        self.kernelsize=kernelsize
+#        self.numSubunits=numSubunits
+#        self.normalizeFunc=normalizeFunc
+#        
+#        modules=[]
+#        echannel=inChannels
+#        
+#        for i,(c,s) in enumerate(zip(channels,strides)):
+#            modules.append(('layer_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,self.normalizeFunc)))
+#            echannel=c
+#            
+#        modules.append(('end',ResidualUnit2D(echannel,classes,1,self.kernelsize,self.numSubunits,self.normalizeFunc)))
+#        
+#        self.classifier=nn.Sequential(collections.OrderedDict(modules))
+#        
+#    def forward(self,x):
+#        out=self.classifier(x)
+#        #out=out.view(x.shape[0],-1)
+#        #assert out.shape==(x.shape[0],self.classes),'%s != %s'%(out.shape,(x.shape[0],self.classes))
+#        return (out,)
+    def __init__(self,inShape,classes,channels,strides,kernelsize=3,numSubunits=2,normalizeFunc=None):
+        super(ResidualClassifier,self).__init__()
+        assert len(channels)==len(strides)
+        self.inHeight,self.inWidth,self.inChannels=inShape
+        self.channels=channels
+        self.strides=strides
+        self.classes=classes
+        self.kernelsize=kernelsize
+        self.numSubunits=numSubunits
+        self.normalizeFunc=normalizeFunc
+        
+        modules=[]
+        self.linear=None
+        echannel=self.inChannels
+        
+        self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
+        
+        # encode stage
+        for i,(c,s) in enumerate(zip(self.channels,self.strides)):
+            modules.append(('layer_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,self.normalizeFunc)))
+            
+            echannel=c # use the output channel number as the input for the next loop
+            self.finalSize=self.finalSize//s
+
+        self.linear=nn.Linear(int(np.product(self.finalSize))*echannel,self.classes)
+        
+        self.classifier=nn.Sequential(collections.OrderedDict(modules))
+        
+    def forward(self,x):
+        b=x.size(0)
+        x=self.classifier(x)
+        x=x.view(b,-1)
+        x=self.linear(x)
+        return (x,)
+        
+
 class AutoEncoder2D(nn.Module):
     def __init__(self,inChannels,outChannels,channels,strides,kernelsize=3,numSubunits=2,normalizeFunc=None):
         super(AutoEncoder2D,self).__init__()
