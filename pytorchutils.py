@@ -229,9 +229,6 @@ class NetworkManager(object):
         finally:
             self.log('Total time (s): %s'%(time.time()-start))
             self.log('Losses:',losses)
-            #self.params['EvalLosses']=losses
-            #self.params['EvalResults']=results
-                
             self.log('===================================Done===================================')
             
         return losses,results
@@ -270,7 +267,8 @@ class NetworkManager(object):
 class BinarySegmentMgr(NetworkManager):
     '''
     Basic manager subtype for binary segmentation, specifying Adam as the optimizer with params['learningRate'] used as
-    the learn rate, and a loss function defined as BinaryDiceLoss.
+    the learn rate, and a loss function defined as BinaryDiceLoss. This expects the first value in self.traininputs to
+    be the images and the last to be the masks, and the first value in self.netoutputs to be the logits.
     '''
     def __init__(self,net,isCuda=True,savedirprefix=None,params={}):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
@@ -290,8 +288,9 @@ class BinarySegmentMgr(NetworkManager):
  
 class AutoEncoderMgr(NetworkManager):
     '''
-    Basic manager subtype for binary segmentation, specifying Adam as the optimizer with params['learningRate'] used as
-    the learn rate, and a loss function defined as BinaryDiceLoss.
+    Basic manager subtype for autoencoders, specifying Adam as the optimizer with params['learningRate'] used as
+    the learn rate, and a loss function defined as BCEWithLogitsLoss. This expects the first value in self.traininputs 
+    to be the input images and the last to be the output images, and the first value in self.netoutputs to be the logits.
     '''
     def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,params={}):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
@@ -310,6 +309,12 @@ class AutoEncoderMgr(NetworkManager):
     
     
 class ImageClassifierMgr(NetworkManager):
+    '''
+    Basic manager subtype for classifier networks, specifying Adam as the optimizer with params['learningRate'] used as
+    the learn rate, and a loss function defined as MSELoss. This expects the first value in self.traininputs to be the 
+    input images and the last to be the category labels, and the first value in self.netoutputs to be the one-hot vector
+    of predictions, ie. of dimensions (batch,# of categories).
+    '''
     def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,params={}):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
         loss=loss if loss is not None else torch.nn.MSELoss()

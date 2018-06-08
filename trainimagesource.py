@@ -328,10 +328,15 @@ class TrainImageSource(object):
         self.batchthread=None
         self.batchqueue=None
         
-    def getBatch(self,numimgs):
         imgtest,outtest=self._generateImagePair()
-        imgs=np.ndarray((numimgs,)+imgtest.shape,imgtest.dtype)
-        outs=np.ndarray((numimgs,)+outtest.shape,outtest.dtype)
+        self.imgshape=imgtest.shape
+        self.imgtype=imgtest.dtype
+        self.outshape=() if (outtest.ndim==1 and outtest.shape[0]==1) else outtest.shape
+        self.outtype=outtest.dtype
+        
+    def getBatch(self,numimgs):
+        imgs=np.ndarray((numimgs,)+self.imgshape,self.imgtype)
+        outs=np.ndarray((numimgs,)+self.outshape,self.outtype)
         numthreads=min(numimgs,self.numthreads or multiprocessing.cpu_count())
         threads=[]
         
