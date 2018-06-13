@@ -140,9 +140,9 @@ class NetworkManager(object):
 
     def train(self,inputfunc,steps,savesteps=5):
         '''
-        Train the network for `step' number of steps, saving `savesteps' number of times at regular intervals. The 
-        callable `inputfunc' is expected to take no arguments and return a tuple pf batch Numpy arrays of shape, B, BC, 
-        BCHW or BCDHW. A train step is composed of these steps:
+        Train the network for `step' number of steps starting at 1, saving `savesteps' number of times at regular 
+        intervals. The callable `inputfunc' is expected to take no arguments and return a tuple pf batch Numpy arrays of 
+        shape, B, BC, BCHW or BCDHW. A train step is composed of these steps:
             1. `inputfunc' is called, each returned value is converted to a Variable, then assigned to self.traininputs
             2. self.netForward() is called and results assigned to self.netoutputs
             3. self.lossForward() is called and results assigned to self.lossoutput
@@ -179,7 +179,7 @@ class NetworkManager(object):
                 self.updateStep(s,lossval)
                 self.params['loss']=lossval
             
-                if self.savedir and savesteps>0 and (s%(steps//savesteps))==0:
+                if self.savedir and s==steps or (savesteps>0 and (s%(steps//savesteps))==0):
                     self.save(os.path.join(self.savedir,'net_%.6i.pth'%s))
                     self.saveStep(s,lossval)
                     

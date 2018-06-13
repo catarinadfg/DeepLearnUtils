@@ -2,7 +2,7 @@
 # Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
 
 from __future__ import print_function,division
-import collections
+from collections import OrderedDict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -78,6 +78,45 @@ class ResidualUnit2D(nn.Module):
         return cx+res # add the residual to the output
     
 
+class ResidualBranchUnit2D(nn.Module):
+    def __init__(self, inChannels,outChannels,strides=1,branches=[(3,)],instanceNorm=True,dropout=0):
+        super(ResidualBranchUnit2D,self).__init__()
+        self.inChannels=inChannels
+        self.outChannels=outChannels
+        self.branchSeqs=[]
+        
+        totalchannels=0
+        for i,branch in enumerate(branches):
+            seq=[]
+            sstrides=strides
+            schannels=inChannels
+            ochannels=max(1,outChannels//len(branches))
+            totalchannels+=ochannels
+            
+            for kernel in branch:
+                seq.append(Convolution2D(schannels,ochannels,sstrides,kernel,instanceNorm,dropout))
+                schannels=ochannels # after first conv set the channels and strides to what they should be for subsequent units
+                sstrides=1
+                
+            seq=nn.Sequential(*seq)
+            setattr(self,'branch%i'%i,seq)
+            self.branchSeqs.append(seq)
+            
+        # resize branches to have the desired number of output channels
+        self.resizeconv=nn.Conv2d(totalchannels,outChannels,kernel_size=1,stride=1)
+        
+        # apply this convolution to the input to change the number of output channels and output size to match that coming from self.conv
+        self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=3,stride=strides,padding=samePadding(3))
+        
+    def forward(self,x):
+        res=self.residual(x) # create the additive residual from x
+        
+        cx=torch.cat([s(x) for s in self.branchSeqs],1)
+        cx=self.resizeconv(cx)
+        
+        return cx+res # add the residual to the output
+    
+
 class UpsampleConcat2D(nn.Module):
     def __init__(self,inChannels,outChannels,strides=1,kernelsize=3):
         super(UpsampleConcat2D,self).__init__()
@@ -86,7 +125,6 @@ class UpsampleConcat2D(nn.Module):
       
     def forward(self,x,y):
         x=self.convt(x)
-        #print(x.shape,y.shape)
         return torch.cat([x,y],1)
 
 
@@ -118,7 +156,7 @@ class ResidualClassifier(nn.Module):
 
         self.linear=nn.Linear(int(np.product(self.finalSize))*echannel,self.classes)
         
-        self.classifier=nn.Sequential(collections.OrderedDict(modules))
+        self.classifier=nn.Sequential(OrderedDict(modules))
         
     def forward(self,x):
         b=x.size(0)
@@ -127,6 +165,43 @@ class ResidualClassifier(nn.Module):
         x=self.linear(x)
         return (x,)
         
+
+class BranchClassifier(nn.Module):
+    def __init__(self,inShape,classes,channels,strides,branches=[(3,)],instanceNorm=True,dropout=0):
+        super(BranchClassifier,self).__init__()
+        assert len(channels)==len(strides)
+        self.inHeight,self.inWidth,self.inChannels=inShape
+        self.channels=channels
+        self.strides=strides
+        self.classes=classes
+        self.branches=branches
+        self.instanceNorm=instanceNorm
+        self.dropout=dropout
+        
+        modules=[]
+        self.linear=None
+        echannel=self.inChannels
+        
+        self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
+        
+        # encode stage
+        for i,(c,s) in enumerate(zip(self.channels,self.strides)):
+            modules.append(('layer_%i'%i,ResidualBranchUnit2D(echannel,c,s,self.branches,instanceNorm,dropout)))
+            
+            echannel=c*len(branches) # use the output channel number as the input for the next loop
+            self.finalSize=self.finalSize//s
+
+        self.linear=nn.Linear(int(np.product(self.finalSize))*echannel,self.classes)
+        
+        self.classifier=nn.Sequential(OrderedDict(modules))
+        
+    def forward(self,x):
+        b=x.size(0)
+        x=self.classifier(x)
+        x=x.view(b,-1)
+        x=self.linear(x)
+        return (x,)
+    
 
 class AutoEncoder2D(nn.Module):
     def __init__(self,inChannels,outChannels,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0):
@@ -156,23 +231,21 @@ class AutoEncoder2D(nn.Module):
             ]
             echannel=c
 
-        self.conv=nn.Sequential(collections.OrderedDict(modules))
+        self.conv=nn.Sequential(OrderedDict(modules))
         
     def forward(self,x):
         return (self.conv(x),)
     
-
-class Unet2D(nn.Module):
-    def __init__(self,inChannels,numClasses,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0):
-        super(Unet2D,self).__init__()
+    
+class BaseUnet2D(nn.Module):
+    def __init__(self,inChannels,numClasses,channels,strides,upsampleKernelSize=3):
+        super(BaseUnet2D,self).__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
         self.numClasses=numClasses
         self.channels=channels
         self.strides=strides
-        self.kernelsize=kernelsize
-        self.numSubunits=numSubunits
-        self.instanceNorm=instanceNorm
+        self.upsampleKernelSize=upsampleKernelSize
         
         dchannels=[self.numClasses]+list(self.channels[:-1])
 
@@ -182,21 +255,24 @@ class Unet2D(nn.Module):
         
         # encode stage
         for c,s,dc in zip(self.channels,self.strides,dchannels):
-            x=ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,instanceNorm,dropout)
+            ex=self._getLayer(echannel,c,s)
             
-            setattr(self,'encode_%i'%(len(self.encodes)),x)
-            self.encodes.insert(0,(x,dc,s,echannel))
-            echannel=c # use the output channel number as the input for the next loop
+            setattr(self,'encode_%i'%(len(self.encodes)),ex)
+            self.encodes.insert(0,(ex,dc,s,echannel))
+            echannel=ex.outChannels # use the output channel number as the input for the next loop
             
         # decode stage
         for ex,c,s,ec in self.encodes:
-            up=UpsampleConcat2D(ex.outChannels,ex.outChannels,s,self.kernelsize)
-            x=ResidualUnit2D(ex.outChannels+ec,c,1,self.kernelsize,1,instanceNorm,dropout)
+            up=UpsampleConcat2D(ex.outChannels,ex.outChannels,s,self.upsampleKernelSize)
+            x=self._getLayer(ex.outChannels+ec,c,1)
             
             setattr(self,'up_%i'%(len(self.decodes)),up)
             setattr(self,'decode_%i'%(len(self.decodes)),x)
             
             self.decodes.append((up,x))
+            
+    def _getLayer(self,inChannels,outChannels,strides):
+        pass
         
     def forward(self,x):
         elist=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
@@ -220,3 +296,85 @@ class Unet2D(nn.Module):
             preds=x.max(1)[1]
 
         return x, preds
+
+
+class Unet2D(BaseUnet2D):
+    def __init__(self,inChannels,numClasses,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0):
+         self.kernelsize=kernelsize
+         self.numSubunits=numSubunits
+         self.instanceNorm=instanceNorm
+         self.dropout=dropout
+         super(Unet2D,self).__init__(inChannels,numClasses,channels,strides,3)
+         
+    def _getLayer(self,inChannels,outChannels,strides):
+        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelsize,self.numSubunits,self.instanceNorm,self.dropout)
+    
+
+class BranchUnet2D(BaseUnet2D):
+    def __init__(self,inChannels,numClasses,channels,strides,branches,instanceNorm=True,dropout=0):
+         self.branches=branches
+         self.instanceNorm=instanceNorm
+         self.dropout=dropout
+         super(BranchUnet2D,self).__init__(inChannels,numClasses,channels,strides,3)
+         
+    def _getLayer(self,inChannels,outChannels,strides):
+        return ResidualBranchUnit2D(inChannels,outChannels,strides,self.branches,self.instanceNorm,self.dropout)
+    
+#class Unet2D(nn.Module):
+#    def __init__(self,inChannels,numClasses,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0):
+#        super(Unet2D,self).__init__()
+#        assert len(channels)==len(strides)
+#        self.inChannels=inChannels
+#        self.numClasses=numClasses
+#        self.channels=channels
+#        self.strides=strides
+#        self.kernelsize=kernelsize
+#        self.numSubunits=numSubunits
+#        self.instanceNorm=instanceNorm
+#        
+#        dchannels=[self.numClasses]+list(self.channels[:-1])
+#
+#        self.encodes=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
+#        self.decodes=[]
+#        echannel=inChannels
+#        
+#        # encode stage
+#        for c,s,dc in zip(self.channels,self.strides,dchannels):
+#            x=ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,instanceNorm,dropout)
+#            
+#            setattr(self,'encode_%i'%(len(self.encodes)),x)
+#            self.encodes.insert(0,(x,dc,s,echannel))
+#            echannel=c # use the output channel number as the input for the next loop
+#            
+#        # decode stage
+#        for ex,c,s,ec in self.encodes:
+#            up=UpsampleConcat2D(ex.outChannels,ex.outChannels,s,self.kernelsize)
+#            x=ResidualUnit2D(ex.outChannels+ec,c,1,self.kernelsize,1,instanceNorm,dropout)
+#            
+#            setattr(self,'up_%i'%(len(self.decodes)),up)
+#            setattr(self,'decode_%i'%(len(self.decodes)),x)
+#            
+#            self.decodes.append((up,x))
+#        
+#    def forward(self,x):
+#        elist=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
+#
+#        # encode stage
+#        for ex,_,_,_ in reversed(self.encodes):
+#            i=len(elist)
+#            addx=x
+#            x=ex(x)
+#            elist.insert(0,(addx,)+self.decodes[-i-1])
+#
+#        # decode stage
+#        for addx,up,ex in elist:
+#            x=up(x,addx)
+#            x=ex(x)
+#            
+#        # generate prediction outputs, x has shape BCHW
+#        if self.numClasses==1:
+#            preds=(x[:,0]>=0.5).type(torch.IntTensor)
+#        else:
+#            preds=x.max(1)[1]
+#
+#        return x, preds
