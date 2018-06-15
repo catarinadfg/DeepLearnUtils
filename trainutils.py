@@ -83,6 +83,7 @@ def getCpuInfo(src='/proc/stat',waitTime=0.05):
 
         load=((curTotal-prevTotal)-(curIdle-prevIdle))/float(curTotal-prevTotal)*100
         result[cpu]=(load,curIdle,curTotal)
+        
     return result
 
 
@@ -163,6 +164,7 @@ def viewImages(img,mask,maskval=0.25):
             p.parent().close()
             
     setattr(p.parent(),'keyPressEvent',_keypress)
+    return p
 
 
 def plotSystemInfo(ax=None):
@@ -171,27 +173,28 @@ def plotSystemInfo(ax=None):
     labels=['CPU Load','Mem Alloc']
     colors=['r','b']
     
-    cpu=getCpuInfo()
-    cols.append(cpu['cpu'][0])
+    try:
+        cpu=getCpuInfo()
+        mem=getMemInfo()
     
-    mem=getMemInfo()
-    
-    allocperc=int((1.0-float(mem['MemAvailable'])/mem['MemTotal'])*100)
-    cols.append(allocperc)
-    
-    gpu=getNvidiaInfo()
-    
-    for n in range(len(gpu['names'])):
-        load=gpu['loads'][n]
-        name=gpu['names'][n]
-        memper=int(100*(float(gpu['memused'][n])/gpu['memtotal'][n]))
+        allocperc=int((1.0-float(mem['MemAvailable'])/mem['MemTotal'])*100)
         
-        cols.append(load)
-        labels.append(name+' Load')
-        cols.append(memper)
-        labels.append(name+' Mem')
-        
-        colors+=['r','b']
+        cols+=[cpu['cpu'][0], allocperc]
+    except:
+        cols+=[0,0]
+    
+    try:
+        gpu=getNvidiaInfo()
+        for n in range(len(gpu['names'])):
+            load=gpu['loads'][n]
+            name=gpu['names'][n]
+            memper=int(100*(float(gpu['memused'][n])/gpu['memtotal'][n]))
+            
+            cols+=[load,memper]
+            labels+=[name+' Load',name+' Mem']
+            colors+=['r','b']
+    except:
+        pass
         
     inds=np.arange(len(cols))
     
@@ -205,10 +208,8 @@ def plotSystemInfo(ax=None):
     ax.set_yticklabels(labels)
     ax.set_xlim([0, 100])
     ax.grid(True,axis='x')
-    
     ax.set_xlabel('% Usages')
     ax.set_title('System Info')
-    
     
     return ax
     
