@@ -255,23 +255,24 @@ class BaseUnet2D(nn.Module):
         
         # encode stage
         for c,s,dc in zip(self.channels,self.strides,dchannels):
-            ex=self._getLayer(echannel,c,s)
+            ex=self._getLayer(echannel,c,s,True)
             
             setattr(self,'encode_%i'%(len(self.encodes)),ex)
             self.encodes.insert(0,(ex,dc,s,echannel))
-            echannel=ex.outChannels # use the output channel number as the input for the next loop
+            echannel=c # use the output channel number as the input for the next loop
             
         # decode stage
         for ex,c,s,ec in self.encodes:
-            up=UpsampleConcat2D(ex.outChannels,ex.outChannels,s,self.upsampleKernelSize)
-            x=self._getLayer(ex.outChannels+ec,c,1)
+            up=UpsampleConcat2D(echannel,echannel,s,self.upsampleKernelSize)
+            x=self._getLayer(echannel+ec,c,1,False)
+            echannel=c
             
             setattr(self,'up_%i'%(len(self.decodes)),up)
             setattr(self,'decode_%i'%(len(self.decodes)),x)
             
             self.decodes.append((up,x))
             
-    def _getLayer(self,inChannels,outChannels,strides):
+    def _getLayer(self,inChannels,outChannels,strides,isEncode):
         pass
         
     def forward(self,x):
@@ -306,8 +307,8 @@ class Unet2D(BaseUnet2D):
          self.dropout=dropout
          super(Unet2D,self).__init__(inChannels,numClasses,channels,strides,3)
          
-    def _getLayer(self,inChannels,outChannels,strides):
-        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelsize,self.numSubunits,self.instanceNorm,self.dropout)
+    def _getLayer(self,inChannels,outChannels,strides,isEncode):
+        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelsize,self.numSubunits if isEncode else 1,self.instanceNorm,self.dropout)
     
 
 class BranchUnet2D(BaseUnet2D):
@@ -317,7 +318,7 @@ class BranchUnet2D(BaseUnet2D):
          self.dropout=dropout
          super(BranchUnet2D,self).__init__(inChannels,numClasses,channels,strides,3)
          
-    def _getLayer(self,inChannels,outChannels,strides):
+    def _getLayer(self,inChannels,outChannels,strides,isEncode):
         return ResidualBranchUnit2D(inChannels,outChannels,strides,self.branches,self.instanceNorm,self.dropout)
     
 #class Unet2D(nn.Module):
