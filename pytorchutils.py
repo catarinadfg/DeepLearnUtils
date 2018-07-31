@@ -272,7 +272,7 @@ class BinarySegmentMgr(NetworkManager):
     '''
     def __init__(self,net,isCuda=True,savedirprefix=None,params={}):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
-        loss=pytorchnet.BinaryDiceLoss()
+        loss=params.get('loss',pytorchnet.BinaryDiceLoss())
         
         super(BinarySegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
     

@@ -263,7 +263,7 @@ class BaseUnet2D(nn.Module):
             
         # decode stage
         for ex,c,s,ec in self.encodes:
-            up=UpsampleConcat2D(echannel,echannel,s,self.upsampleKernelSize)
+            up=self._getUpsampleConcat(echannel,echannel,s,self.upsampleKernelSize)
             x=self._getLayer(echannel+ec,c,1,False)
             echannel=c
             
@@ -272,6 +272,9 @@ class BaseUnet2D(nn.Module):
             
             self.decodes.append((up,x))
             
+    def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
+        pass
+    
     def _getLayer(self,inChannels,outChannels,strides,isEncode):
         pass
         
@@ -294,7 +297,7 @@ class BaseUnet2D(nn.Module):
         if self.numClasses==1:
             preds=(x[:,0]>=0.5).type(torch.IntTensor)
         else:
-            preds=x.max(1)[1]
+            preds=x.max(1)[1] # take the index of the max value along dimension 1
 
         return x, preds
 
@@ -306,7 +309,10 @@ class Unet2D(BaseUnet2D):
          self.instanceNorm=instanceNorm
          self.dropout=dropout
          super(Unet2D,self).__init__(inChannels,numClasses,channels,strides,3)
-         
+
+    def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
+        return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)    
+     
     def _getLayer(self,inChannels,outChannels,strides,isEncode):
         return ResidualUnit2D(inChannels,outChannels,strides,self.kernelsize,self.numSubunits if isEncode else 1,self.instanceNorm,self.dropout)
     
@@ -317,65 +323,10 @@ class BranchUnet2D(BaseUnet2D):
          self.instanceNorm=instanceNorm
          self.dropout=dropout
          super(BranchUnet2D,self).__init__(inChannels,numClasses,channels,strides,3)
+
+    def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
+        return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)
          
     def _getLayer(self,inChannels,outChannels,strides,isEncode):
         return ResidualBranchUnit2D(inChannels,outChannels,strides,self.branches,self.instanceNorm,self.dropout)
     
-#class Unet2D(nn.Module):
-#    def __init__(self,inChannels,numClasses,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0):
-#        super(Unet2D,self).__init__()
-#        assert len(channels)==len(strides)
-#        self.inChannels=inChannels
-#        self.numClasses=numClasses
-#        self.channels=channels
-#        self.strides=strides
-#        self.kernelsize=kernelsize
-#        self.numSubunits=numSubunits
-#        self.instanceNorm=instanceNorm
-#        
-#        dchannels=[self.numClasses]+list(self.channels[:-1])
-#
-#        self.encodes=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
-#        self.decodes=[]
-#        echannel=inChannels
-#        
-#        # encode stage
-#        for c,s,dc in zip(self.channels,self.strides,dchannels):
-#            x=ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,instanceNorm,dropout)
-#            
-#            setattr(self,'encode_%i'%(len(self.encodes)),x)
-#            self.encodes.insert(0,(x,dc,s,echannel))
-#            echannel=c # use the output channel number as the input for the next loop
-#            
-#        # decode stage
-#        for ex,c,s,ec in self.encodes:
-#            up=UpsampleConcat2D(ex.outChannels,ex.outChannels,s,self.kernelsize)
-#            x=ResidualUnit2D(ex.outChannels+ec,c,1,self.kernelsize,1,instanceNorm,dropout)
-#            
-#            setattr(self,'up_%i'%(len(self.decodes)),up)
-#            setattr(self,'decode_%i'%(len(self.decodes)),x)
-#            
-#            self.decodes.append((up,x))
-#        
-#    def forward(self,x):
-#        elist=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
-#
-#        # encode stage
-#        for ex,_,_,_ in reversed(self.encodes):
-#            i=len(elist)
-#            addx=x
-#            x=ex(x)
-#            elist.insert(0,(addx,)+self.decodes[-i-1])
-#
-#        # decode stage
-#        for addx,up,ex in elist:
-#            x=up(x,addx)
-#            x=ex(x)
-#            
-#        # generate prediction outputs, x has shape BCHW
-#        if self.numClasses==1:
-#            preds=(x[:,0]>=0.5).type(torch.IntTensor)
-#        else:
-#            preds=x.max(1)[1]
-#
-#        return x, preds
