@@ -9,7 +9,64 @@ import torch.nn as nn
 from torch.nn.modules.loss import _Loss
 
 
+def oneHot2D(labels,numClasses):
+    '''
+    For a tensor `labels' of dimensions BCHW, return a tensor of dimensions BCHWN
+    for N classes given in `numClasses'. For every value v = labels[b,c,h,w], the 
+    value in the result at [b,c,h,w,v] will be 1 and all others 0.
+    '''
+    batch,channel,h,w=labels.shape
+    labels=labels%numClasses
+    y = torch.eye(numClasses)
+    
+    if labels.is_cuda:
+        y=y.cuda()
+        
+    onehot=y[labels.view(-1).long()]
+    
+    return onehot.reshape(batch,channel,h,w,numClasses) 
+
+
+#n=torch.zeros((6,6))
+#n[1:5,1:5]=1
+#n[2:4,2:4]=2
+#print(n)
+#oh=pytorchnet.oneHot2D(n[np.newaxis,np.newaxis],3)
+#print(oh[...,0])
+#print(oh[...,1])
+#print(oh[...,2])
+#
+#tensor([[ 0.,  0.,  0.,  0.,  0.,  0.],
+#        [ 0.,  1.,  1.,  1.,  1.,  0.],
+#        [ 0.,  1.,  2.,  2.,  1.,  0.],
+#        [ 0.,  1.,  2.,  2.,  1.,  0.],
+#        [ 0.,  1.,  1.,  1.,  1.,  0.],
+#        [ 0.,  0.,  0.,  0.,  0.,  0.]])
+#tensor([[[[ 1.,  1.,  1.,  1.,  1.,  1.],
+#          [ 1.,  0.,  0.,  0.,  0.,  1.],
+#          [ 1.,  0.,  0.,  0.,  0.,  1.],
+#          [ 1.,  0.,  0.,  0.,  0.,  1.],
+#          [ 1.,  0.,  0.,  0.,  0.,  1.],
+#          [ 1.,  1.,  1.,  1.,  1.,  1.]]]])
+#tensor([[[[ 0.,  0.,  0.,  0.,  0.,  0.],
+#          [ 0.,  1.,  1.,  1.,  1.,  0.],
+#          [ 0.,  1.,  0.,  0.,  1.,  0.],
+#          [ 0.,  1.,  0.,  0.,  1.,  0.],
+#          [ 0.,  1.,  1.,  1.,  1.,  0.],
+#          [ 0.,  0.,  0.,  0.,  0.,  0.]]]])
+#tensor([[[[ 0.,  0.,  0.,  0.,  0.,  0.],
+#          [ 0.,  0.,  0.,  0.,  0.,  0.],
+#          [ 0.,  0.,  1.,  1.,  0.,  0.],
+#          [ 0.,  0.,  1.,  1.,  0.,  0.],
+#          [ 0.,  0.,  0.,  0.,  0.,  0.],
+#          [ 0.,  0.,  0.,  0.,  0.,  0.]]]])
+
+
 def samePadding(kernelsize):
+    '''
+    Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
+    shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
+    '''
     if isinstance(kernelsize,tuple):
         return tuple((k-1)//2 for k in kernelsize)
     else:
@@ -27,9 +84,49 @@ class BinaryDiceLoss(_Loss):
         sums=psum+tsum
 
         score = 2.0 * (intersection.sum(1) + smooth) / (sums.sum(1) + smooth)
-        score = 1 - score.sum() / batchsize
-        return score
+        return 1 - score.sum() / batchsize
     
+
+class MulticlassDiceLoss(_Loss):
+    def __init__(self,numClasses,excludeBackground=True):
+        _Loss.__init__(self)
+        self.numClasses=numClasses
+        self.excludeBackground=excludeBackground
+        self.softmax=nn.Softmax2d()
+        
+    def forward(self, source, target, smooth=1e-5):
+        '''
+        Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
+        `target' (B1HW). Axis 1 of `source' is expected to have logit predictions for each class rather than being the
+        image channels, while the channels of `target' should be 1.
+        '''
+        assert source.shape[0]==target.shape[0]
+        assert source.shape[2]==target.shape[2]
+        assert source.shape[3]==target.shape[3]
+        assert source.shape[1]==self.numClasses
+        assert target.shape[1]==1
+        
+        batchsize = target.size(0)
+        target1hot=oneHot2D(target,self.numClasses) # BCHW -> BCHWN
+        target1hot=target1hot[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
+        
+        if self.excludeBackground:
+            source=source[:,1:]
+            target1hot=target1hot[:,1:]
+        
+        probs = self.softmax(source)
+#        probs=source.float().sigmoid()
+#        probs=source.float().contiguous()
+        
+        psum = probs.view(batchsize, -1)
+        tsum = target1hot.float().view(batchsize, -1)
+        
+        intersection=psum*tsum
+        sums=psum+tsum
+
+        score = 2.0 * (intersection.sum(1) + smooth) / (sums.sum(1) + smooth)
+        return 1 - score.sum() / batchsize
+        
 
 class Convolution2D(nn.Module):
     def __init__(self,inChannels,outChannels,strides=1,kernelsize=3,instanceNorm=True,dropout=0):
@@ -105,7 +202,7 @@ class ResidualBranchUnit2D(nn.Module):
         # resize branches to have the desired number of output channels
         self.resizeconv=nn.Conv2d(totalchannels,outChannels,kernel_size=1,stride=1)
         
-        # apply this convolution to the input to change the number of output channels and output size to match that coming from self.conv
+        # apply this convolution to the input to change the number of output channels and output size to match self.resizeconv
         self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=3,stride=strides,padding=samePadding(3))
         
     def forward(self,x):

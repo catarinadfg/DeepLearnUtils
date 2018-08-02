@@ -284,6 +284,28 @@ class BinarySegmentMgr(NetworkManager):
         masks=self.traininputs[-1]
         logits=self.netoutputs[0]
         return self.loss(logits,masks)
+
+
+class MulticlassSegmentMgr(NetworkManager):
+    '''
+    Basic manager subtype for binary segmentation, specifying Adam as the optimizer with params['learningRate'] used as
+    the learn rate, and a loss function defined as BinaryDiceLoss. This expects the first value in self.traininputs to
+    be the images and the last to be the masks, and the first value in self.netoutputs to be the logits.
+    '''
+    def __init__(self,net,numClasses,isCuda=True,savedirprefix=None,params={}):
+        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
+        loss=params.get('loss',pytorchnet.MulticlassDiceLoss(numClasses))
+        
+        super(MulticlassSegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
+    
+    def netForward(self):
+        images=self.traininputs[0]
+        return self.net(images)
+    
+    def lossForward(self):
+        masks=self.traininputs[-1]
+        logits=self.netoutputs[0]
+        return self.loss(logits,masks)
     
  
 class AutoEncoderMgr(NetworkManager):
