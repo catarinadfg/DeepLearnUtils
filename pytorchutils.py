@@ -292,9 +292,9 @@ class MulticlassSegmentMgr(NetworkManager):
     the learn rate, and a loss function defined as BinaryDiceLoss. This expects the first value in self.traininputs to
     be the images and the last to be the masks, and the first value in self.netoutputs to be the logits.
     '''
-    def __init__(self,net,numClasses,isCuda=True,savedirprefix=None,params={}):
+    def __init__(self,net,isCuda=True,savedirprefix=None,excludeBackground=True,params={}):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
-        loss=params.get('loss',pytorchnet.MulticlassDiceLoss(numClasses))
+        loss=params.get('loss',pytorchnet.MulticlassDiceLoss(excludeBackground))
         
         super(MulticlassSegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
     

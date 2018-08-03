@@ -13,7 +13,9 @@ def oneHot2D(labels,numClasses):
     '''
     For a tensor `labels' of dimensions BCHW, return a tensor of dimensions BCHWN
     for N classes given in `numClasses'. For every value v = labels[b,c,h,w], the 
-    value in the result at [b,c,h,w,v] will be 1 and all others 0.
+    value in the result at [b,c,h,w,v] will be 1 and all others 0. Note that this
+    will include the background label, thus a binary mask is treated as having 2 
+    classes and produces a 2-layer output.
     '''
     batch,channel,h,w=labels.shape
     labels=labels%numClasses
@@ -88,9 +90,8 @@ class BinaryDiceLoss(_Loss):
     
 
 class MulticlassDiceLoss(_Loss):
-    def __init__(self,numClasses,excludeBackground=True):
+    def __init__(self,excludeBackground=True):
         _Loss.__init__(self)
-        self.numClasses=numClasses
         self.excludeBackground=excludeBackground
         self.softmax=nn.Softmax2d()
         
@@ -98,23 +99,30 @@ class MulticlassDiceLoss(_Loss):
         '''
         Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
         `target' (B1HW). Axis 1 of `source' is expected to have logit predictions for each class rather than being the
-        image channels, while the channels of `target' should be 1.
+        image channels, while the channels of `target' should be 1. If self.excludeBackground is True (the default) the 
+        class at index N=0 of `source' is not treated as the background psuedo-class, otherwise it is treated as class 0
+        which is represented by 0 values in `target'.
         '''
-        assert source.shape[0]==target.shape[0]
-        assert source.shape[2]==target.shape[2]
-        assert source.shape[3]==target.shape[3]
-        assert source.shape[1]==self.numClasses
+        numClasses=source.shape[1]
+        num1HotClasses=numClasses+(1 if self.excludeBackground else 0) # need extra 1 hot class which is background at 0
+        
         assert target.shape[1]==1
         
         batchsize = target.size(0)
-        target1hot=oneHot2D(target,self.numClasses) # BCHW -> BCHWN
+        target1hot=oneHot2D(target,num1HotClasses) # BCHW -> BCHWN
         target1hot=target1hot[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
         
+        # remove the 0 class from the 1 hot
         if self.excludeBackground:
-            source=source[:,1:]
             target1hot=target1hot[:,1:]
+            probs=source.max(1)[1][:,np.newaxis]
+            probs=torch.cat([(probs==0).float(),source.float()],1)
+            probs = self.softmax(probs)[:,1:]
+        else:
+            probs = self.softmax(source)
+
+        assert target1hot.shape==source.shape
         
-        probs = self.softmax(source)
 #        probs=source.float().sigmoid()
 #        probs=source.float().contiguous()
         
@@ -334,9 +342,9 @@ class AutoEncoder2D(nn.Module):
         return (self.conv(x),)
     
     
-class BaseUnet2D(nn.Module):
+class BaseUnet(nn.Module):
     def __init__(self,inChannels,numClasses,channels,strides,upsampleKernelSize=3):
-        super(BaseUnet2D,self).__init__()
+        super(BaseUnet,self).__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
         self.numClasses=numClasses
@@ -399,7 +407,7 @@ class BaseUnet2D(nn.Module):
         return x, preds
 
 
-class Unet2D(BaseUnet2D):
+class Unet2D(BaseUnet):
     def __init__(self,inChannels,numClasses,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0):
          self.kernelsize=kernelsize
          self.numSubunits=numSubunits
@@ -414,7 +422,7 @@ class Unet2D(BaseUnet2D):
         return ResidualUnit2D(inChannels,outChannels,strides,self.kernelsize,self.numSubunits if isEncode else 1,self.instanceNorm,self.dropout)
     
 
-class BranchUnet2D(BaseUnet2D):
+class BranchUnet2D(BaseUnet):
     def __init__(self,inChannels,numClasses,channels,strides,branches,instanceNorm=True,dropout=0):
          self.branches=branches
          self.instanceNorm=instanceNorm
