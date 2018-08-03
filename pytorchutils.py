@@ -43,7 +43,7 @@ class NetworkManager(object):
     method descriptions for netForward(), lossForward(), train(), and evaluate() explain the necessary details to 
     implementing a subtype of this class.
     '''
-    def __init__(self,net,opt,loss,isCuda=True,savedirprefix=None,params={}):
+    def __init__(self,net,opt,loss,isCuda=True,savedirprefix=None,**params):
         '''
         Initialize the manager with the given network `net' to be managed, optimizer `opt', and loss function `loss'.
         If `isCuda' is True the network and inputs are converted to cuda tensors. The `savedirprefix' is the prefix for
@@ -262,19 +262,19 @@ class NetworkManager(object):
             self.netoutputs=None
         
         return results
-        
     
-class BinarySegmentMgr(NetworkManager):
+    
+class SegmentMgr(NetworkManager):
     '''
-    Basic manager subtype for binary segmentation, specifying Adam as the optimizer with params['learningRate'] used as
-    the learn rate, and a loss function defined as BinaryDiceLoss. This expects the first value in self.traininputs to
+    Basic manager subtype for segmentation, specifying Adam as the optimizer with params['learningRate'] used as
+    the learn rate, and a loss function defined as DiceLoss. This expects the first value in self.traininputs to
     be the images and the last to be the masks, and the first value in self.netoutputs to be the logits.
     '''
-    def __init__(self,net,isCuda=True,savedirprefix=None,params={}):
+    def __init__(self,net,isCuda=True,savedirprefix=None,**params):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
-        loss=params.get('loss',pytorchnet.BinaryDiceLoss())
+        loss=params.get('loss',pytorchnet.DiceLoss())
         
-        super(BinarySegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
+        super(SegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,**params)
     
     def netForward(self):
         images=self.traininputs[0]
@@ -283,29 +283,7 @@ class BinarySegmentMgr(NetworkManager):
     def lossForward(self):
         masks=self.traininputs[-1]
         logits=self.netoutputs[0]
-        return self.loss(logits,masks)
-
-
-class MulticlassSegmentMgr(NetworkManager):
-    '''
-    Basic manager subtype for binary segmentation, specifying Adam as the optimizer with params['learningRate'] used as
-    the learn rate, and a loss function defined as BinaryDiceLoss. This expects the first value in self.traininputs to
-    be the images and the last to be the masks, and the first value in self.netoutputs to be the logits.
-    '''
-    def __init__(self,net,isCuda=True,savedirprefix=None,excludeBackground=True,params={}):
-        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
-        loss=params.get('loss',pytorchnet.MulticlassDiceLoss(excludeBackground))
-        
-        super(MulticlassSegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
-    
-    def netForward(self):
-        images=self.traininputs[0]
-        return self.net(images)
-    
-    def lossForward(self):
-        masks=self.traininputs[-1]
-        logits=self.netoutputs[0]
-        return self.loss(logits,masks)
+        return self.loss(logits,masks)    
     
  
 class AutoEncoderMgr(NetworkManager):
@@ -314,11 +292,11 @@ class AutoEncoderMgr(NetworkManager):
     the learn rate, and a loss function defined as BCEWithLogitsLoss. This expects the first value in self.traininputs 
     to be the input images and the last to be the output images, and the first value in self.netoutputs to be the logits.
     '''
-    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,params={}):
+    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
         loss=loss if loss is not None else torch.nn.BCEWithLogitsLoss()
         
-        super(AutoEncoderMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
+        super(AutoEncoderMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,**params)
     
     def netForward(self):
         images=self.traininputs[0]
@@ -337,11 +315,11 @@ class ImageClassifierMgr(NetworkManager):
     input images and the last to be the category labels, and the first value in self.netoutputs to be the one-hot vector
     of predictions, ie. of dimensions (batch,# of categories).
     '''
-    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,params={}):
+    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
         opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
         loss=loss if loss is not None else torch.nn.MSELoss()
         
-        super(ImageClassifierMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,params)
+        super(ImageClassifierMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,**params)
         
     def netForward(self):
         images=self.traininputs[0]

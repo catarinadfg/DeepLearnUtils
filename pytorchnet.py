@@ -29,41 +29,6 @@ def oneHot2D(labels,numClasses):
     return onehot.reshape(batch,channel,h,w,numClasses) 
 
 
-#n=torch.zeros((6,6))
-#n[1:5,1:5]=1
-#n[2:4,2:4]=2
-#print(n)
-#oh=pytorchnet.oneHot2D(n[np.newaxis,np.newaxis],3)
-#print(oh[...,0])
-#print(oh[...,1])
-#print(oh[...,2])
-#
-#tensor([[ 0.,  0.,  0.,  0.,  0.,  0.],
-#        [ 0.,  1.,  1.,  1.,  1.,  0.],
-#        [ 0.,  1.,  2.,  2.,  1.,  0.],
-#        [ 0.,  1.,  2.,  2.,  1.,  0.],
-#        [ 0.,  1.,  1.,  1.,  1.,  0.],
-#        [ 0.,  0.,  0.,  0.,  0.,  0.]])
-#tensor([[[[ 1.,  1.,  1.,  1.,  1.,  1.],
-#          [ 1.,  0.,  0.,  0.,  0.,  1.],
-#          [ 1.,  0.,  0.,  0.,  0.,  1.],
-#          [ 1.,  0.,  0.,  0.,  0.,  1.],
-#          [ 1.,  0.,  0.,  0.,  0.,  1.],
-#          [ 1.,  1.,  1.,  1.,  1.,  1.]]]])
-#tensor([[[[ 0.,  0.,  0.,  0.,  0.,  0.],
-#          [ 0.,  1.,  1.,  1.,  1.,  0.],
-#          [ 0.,  1.,  0.,  0.,  1.,  0.],
-#          [ 0.,  1.,  0.,  0.,  1.,  0.],
-#          [ 0.,  1.,  1.,  1.,  1.,  0.],
-#          [ 0.,  0.,  0.,  0.,  0.,  0.]]]])
-#tensor([[[[ 0.,  0.,  0.,  0.,  0.,  0.],
-#          [ 0.,  0.,  0.,  0.,  0.,  0.],
-#          [ 0.,  0.,  1.,  1.,  0.,  0.],
-#          [ 0.,  0.,  1.,  1.,  0.,  0.],
-#          [ 0.,  0.,  0.,  0.,  0.,  0.],
-#          [ 0.,  0.,  0.,  0.,  0.,  0.]]]])
-
-
 def samePadding(kernelsize):
     '''
     Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
@@ -75,60 +40,33 @@ def samePadding(kernelsize):
         return (kernelsize-1)//2
     
 
-class BinaryDiceLoss(_Loss):
-    def forward(self, source, target, smooth=1e-5):
-        batchsize = target.size(0)
-        probs = source.float().sigmoid()
-        psum = probs.view(batchsize, -1)
-        tsum = target.float().view(batchsize, -1)
-        
-        intersection=psum*tsum
-        sums=psum+tsum
-
-        score = 2.0 * (intersection.sum(1) + smooth) / (sums.sum(1) + smooth)
-        return 1 - score.sum() / batchsize
-    
-
-class MulticlassDiceLoss(_Loss):
-    def __init__(self,excludeBackground=True):
-        _Loss.__init__(self)
-        self.excludeBackground=excludeBackground
-        self.softmax=nn.Softmax2d()
+class DiceLoss(_Loss):
+    softmax=nn.Softmax2d()
         
     def forward(self, source, target, smooth=1e-5):
         '''
         Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
         `target' (B1HW). Axis 1 of `source' is expected to have logit predictions for each class rather than being the
-        image channels, while the channels of `target' should be 1. If self.excludeBackground is True (the default) the 
-        class at index N=0 of `source' is not treated as the background psuedo-class, otherwise it is treated as class 0
-        which is represented by 0 values in `target'.
+        image channels, while the channels of `target' should be 1. If the N channel of `source' is 1 a binary dice loss
+        will be calculated.
         '''
-        numClasses=source.shape[1]
-        num1HotClasses=numClasses+(1 if self.excludeBackground else 0) # need extra 1 hot class which is background at 0
-        
         assert target.shape[1]==1
         
         batchsize = target.size(0)
-        target1hot=oneHot2D(target,num1HotClasses) # BCHW -> BCHWN
-        target1hot=target1hot[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
         
-        # remove the 0 class from the 1 hot
-        if self.excludeBackground:
-            target1hot=target1hot[:,1:]
-            probs=source.max(1)[1][:,np.newaxis]
-            probs=torch.cat([(probs==0).float(),source.float()],1)
-            probs = self.softmax(probs)[:,1:]
+        if source.shape[1]==1:
+            probs = source.float().sigmoid()
+            tsum = target.float().view(batchsize, -1)
         else:
+            target1hot=oneHot2D(target,source.shape[1]) # BCHW -> BCHWN
+            target1hot=target1hot[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
+            
+            assert target1hot.shape==source.shape
+            
             probs = self.softmax(source)
-
-        assert target1hot.shape==source.shape
-        
-#        probs=source.float().sigmoid()
-#        probs=source.float().contiguous()
+            tsum = target1hot.float().view(batchsize, -1)
         
         psum = probs.view(batchsize, -1)
-        tsum = target1hot.float().view(batchsize, -1)
-        
         intersection=psum*tsum
         sums=psum+tsum
 
