@@ -14,6 +14,14 @@ gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
 gpuload=re.compile('MiB\s*\|\s*(\d+)\%')
 
 
+def oneHot(labels,numClasses):
+    labels=labels%numClasses
+    y = np.eye(numClasses)
+    onehot=y[labels.flatten()]
+    
+    return onehot.reshape(tuple(labels.shape)+(numClasses,))
+
+
 def iouMetric(masks,preds,smooth=1e-5):
     masks=masks==masks.max()
     preds=preds==preds.max()
