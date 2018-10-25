@@ -3,11 +3,12 @@
 
 
 from __future__ import division, print_function
-import subprocess,re,time
+import subprocess,re,time,platform
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
+isWindows=platform.system().lower()=='windows'
 
 gpunames=re.compile('\|\s+\d+\s+([a-zA-Z][^\|]+) O[nf][f ]')
 gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
@@ -258,8 +259,10 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
         ims.append(im)
     
     ax=plt.subplot2grid(gridshape, (3, 0),rowspan=1,colspan=gridshape[1])
-    ax=plotSystemInfo(ax)
-    ims.append(ax)
+    
+    if not isWindows:
+        ax=plotSystemInfo(ax)
+        ims.append(ax)
     
     plt.tight_layout(pad=0.0, w_pad=0.0, h_pad=0.0)
     
