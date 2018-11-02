@@ -50,7 +50,7 @@ class DiceLoss(_Loss):
         image channels, while the channels of `target' should be 1. If the N channel of `source' is 1 a binary dice loss
         will be calculated.
         '''
-        assert target.shape[1]==1
+        assert target.shape[1]==1,'Target shape is '+str(target.shape)
         
         batchsize = target.size(0)
         
@@ -84,7 +84,7 @@ class Convolution2D(nn.Module):
         
         self.conv=nn.Sequential(
             nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding),
-            normalizeFunc(outChannels),#,track_running_stats=True), 
+            normalizeFunc(outChannels),
             nn.Dropout2d(dropout),
             nn.modules.PReLU()
         )
@@ -258,23 +258,23 @@ class AutoEncoder2D(nn.Module):
         self.numSubunits=numSubunits
         self.instanceNorm=instanceNorm
         
-        modules=[]
+        self.modules=[]
         echannel=inChannels
         
         # encoding stage
         for i,(c,s) in enumerate(zip(channels,strides)):
-            modules.append(('encode_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,instanceNorm,dropout)))
+            self.modules.append(('encode_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,instanceNorm,dropout)))
             echannel=c
             
         # decoding stage
         for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[outChannels],strides[::-1])):
-            modules+=[
+            self.modules+=[
                 ('up_%i'%i,nn.ConvTranspose2d(echannel,echannel,self.kernelsize,s,1,s-1)),
                 ('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelsize,self.numSubunits,instanceNorm,dropout))
             ]
             echannel=c
 
-        self.conv=nn.Sequential(OrderedDict(modules))
+        self.conv=nn.Sequential(OrderedDict(self.modules))
         
     def forward(self,x):
         return (self.conv(x),)
@@ -338,7 +338,7 @@ class BaseUnet(nn.Module):
             
         # generate prediction outputs, x has shape BCHW
         if self.numClasses==1:
-            preds=(x[:,0]>=0.5).type(torch.IntTensor)
+            preds=(x[:,0]>=0).type(torch.IntTensor)
         else:
             preds=x.max(1)[1] # take the index of the max value along dimension 1
 

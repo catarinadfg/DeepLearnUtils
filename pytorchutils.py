@@ -13,14 +13,6 @@ import pytorchnet
 import numpy as np
 
 
-if torch.__version__>='0.4':
-    def toItem(t):
-        return t.item()
-else:
-    def toItem(t):
-        return t.data[0]
-    
-
 def convertAug(images,out):
     '''Convert `images' and `out' to CH[W] format, assuming `images' is HWC and `out' is H[W].'''
     return images.transpose([2,0,1]), out[np.newaxis,...]
@@ -174,7 +166,7 @@ class NetworkManager(object):
                 self.lossoutput.backward()
                 self.opt.step()
             
-                lossval=toItem(self.lossoutput)
+                lossval=self.lossoutput.item()
                 self.log('Loss:',lossval)
                 self.updateStep(s,lossval)
                 self.params['loss']=lossval
@@ -215,7 +207,7 @@ class NetworkManager(object):
                 self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
                 self.netoutputs=self.netForward()
                 self.lossoutput=self.lossForward()
-                losses.append(toItem(self.lossoutput))
+                losses.append(self.lossoutput.item())
                 
                 self.evalStep(i,losses[-1],results)
                 # clear stored variables to free graph
