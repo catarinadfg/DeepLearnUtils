@@ -35,7 +35,8 @@ def createDataGenerator(inArrays,outArrays):
     indices=list(range(inShape[0]))
     
     def getData(batchSize=None,selectProbs=None,chosenInds=None):
-        chosenInds=chosenInds or np.random.choice(indices,batchSize,p=selectProbs)
+        if chosenInds is None:
+            chosenInds=np.random.choice(inShape[0],batchSize,p=selectProbs)
         
         return inFunc(chosenInds),outFunc(chosenInds)
     
@@ -86,7 +87,7 @@ class DataSource(object):
         isRunning=True
         batchQueue=queue.Queue(1)
         
-        inArrays,outArrays=self.getRandomBatch(1)
+        inArrays,outArrays=self.getIndexBatch([0])
         inAugTest,outAugTest=self.applyAugments(getArraySet(inArrays,0),getArraySet(outArrays,0))
         
         inAugs=createZeroArraySet(inAugTest,(batchSize,))
@@ -102,6 +103,9 @@ class DataSource(object):
                         ina,outa=self.applyAugments(getArraySet(inArrays,i),getArraySet(outArrays,i))
                         writeArraySet(inAugs,ina,i)
                         writeArraySet(outAugs,outa,i)
+#                         ina,outa=self.applyAugments(inArrays[i],outArrays[i])
+#                         inAugs[i]=ina
+#                         outAugs[i]=outa
                 
                 for indices in threadIndices:
                     t=threading.Thread(target=_generateForIndices,args=(indices,))
@@ -112,8 +116,6 @@ class DataSource(object):
                     t.join()
                     
                 batchQueue.put((inAugs,outAugs))
-                
-                
                 
         batchThread=threading.Thread(target=_batchThread)
         batchThread.start()
