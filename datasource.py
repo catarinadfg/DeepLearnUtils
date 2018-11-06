@@ -1,7 +1,10 @@
 
 from __future__ import division, print_function
 import threading
-import multiprocessing
+import multiprocessing as mp
+import marshal
+import types
+from multiprocessing import sharedctypes
 from contextlib import contextmanager
 
 try:
@@ -61,7 +64,91 @@ def writeArraySet(arrays,writes,index):
     else:
         arrays[index]=writes
         
+        
+def fillArraySet(arrays,writes):
+    if isinstance(arrays,tuple):
+        for a,w in zip(arrays,writes):
+            a[:]=w
+    else:
+        arrays[:]=writes
+        
+        
+def toShared(arrays):
+    '''Convert the given Numpy array to a shared ctypes object.'''
+    if isinstance(arrays,tuple):
+        out=[]
+        for arr in arrays:
+            carr=np.ctypeslib.as_ctypes(arr)
+            out.append(sharedctypes.RawArray(carr._type_, carr))
+            
+        return tuple(out)
+    else:
+        carr=np.ctypeslib.as_ctypes(arrays)
+        return sharedctypes.RawArray(carr._type_, carr)
 
+
+def fromShared(arrays):
+    '''Map the given ctypes object to a Numpy array, this is expected to be a shared object from the parent.'''
+    if isinstance(arrays,tuple):
+        return tuple(np.ctypeslib.as_array(arr) for arr in arrays)
+    else:
+        return np.ctypeslib.as_array(arrays)
+
+        
+def init(inArrays_,outArrays_,inAugs_,outAugs_,augments_):
+    global inArrays
+    global outArrays
+    global inAugs
+    global outAugs
+    global augments
+    
+    inArrays=fromShared(inArrays_)
+    outArrays=fromShared(outArrays_)
+    inAugs=fromShared(inAugs_)
+    outAugs=fromShared(outAugs_)
+    
+    augments=[types.FunctionType(marshal.loads(a),globals()) for a in augments_]
+    
+    
+def applyAugments(indices):
+    global inArrays
+    global outArrays
+    global inAugs
+    global outAugs
+    global augments
+    
+    for i in indices:
+        ina=getArraySet(inArrays,i)
+        outa=getArraySet(outArrays,i)
+        
+        for aug in augments:
+            ina,outa=aug(ina,outa)
+        
+        writeArraySet(inAugs,ina,i)
+        writeArraySet(outAugs,outa,i)
+        
+
+# class AugmentProcess(mp.Process):
+    
+#     def __init__(self,isRunning,start,end,inArrays,outArrays,inAugs,outAugs,augments,**kwargs):
+#         mp.Process.__init__(self)
+#         self.isRunning=isRunning
+#         self.start=start
+#         self.end=end
+#         self.inArrays=fromShared(inArrays)
+#         self.outArrays=fromShared(outArrays)
+#         self.inAugs=fromShared(inAugs)
+#         self.outAugs=fromShared(outAugs)
+        
+#         execglobals=dict(globals())
+#         execglobals.update(cglobals)
+        
+#         self.augments=[types.FunctionType(marshal.loads(a),execglobals) for a in augments]
+        
+#     def run(self):
+#         pass
+    
+    
 class DataSource(object):
     def __init__(self,inArrays=None,outArrays=None,dataGen=None,selectProbs=None,augments=[]):
         self.dataGen=dataGen or createDataGenerator(inArrays,outArrays)
@@ -81,8 +168,8 @@ class DataSource(object):
         return inArrays,outArrays
     
     @contextmanager
-    def asyncBatchGen(self,batchSize,numThreads=None):
-        numThreads=min(batchSize,numThreads or multiprocessing.cpu_count())
+    def threadBatchGen(self,batchSize,numThreads=None):
+        numThreads=min(batchSize,numThreads or mp.cpu_count())
         threadIndices=np.array_split(np.arange(batchSize),numThreads)
         isRunning=True
         batchQueue=queue.Queue(1)
@@ -124,8 +211,64 @@ class DataSource(object):
             yield batchQueue.get
         finally:
             isRunning=False
+            
+    @contextmanager
+    def processBatchGen(self,batchSize,numProcs=None):
+        numProcs=min(batchSize,numProcs or mp.cpu_count())
+        procIndices=np.array_split(np.arange(batchSize),numProcs)
+        isRunning=True
+        batchQueue=queue.Queue(1)
         
+        inArrays,outArrays=self.getRandomBatch(batchSize)
+        inAugTest,outAugTest=self.applyAugments(getArraySet(inArrays,0),getArraySet(outArrays,0))
         
+        inAugs=createZeroArraySet(inAugTest,(batchSize,))
+        outAugs=createZeroArraySet(outAugTest,(batchSize,))
+        
+        inArrays=toShared(inArrays)
+        outArrays=toShared(outArrays)
+        
+        inAugs=toShared(inAugs)
+        outAugs=toShared(outAugs)
+        
+        maugs=[marshal.dumps(aug.__code__) for aug in self.augments]
+        initargs=(inArrays,outArrays,inAugs,outAugs,maugs)
+        
+               
+        def _batchThread(inArrays,outArrays,inAugs,outAugs,maugs):
+            try:
+                initargs=(inArrays,outArrays,inAugs,outAugs,maugs)
+                
+                with mp.Pool(numProcs,initializer=init,initargs=initargs) as p:
+                    inArrays=fromShared(inArrays)
+                    outArrays=fromShared(outArrays)
+                        
+                    while isRunning:
+                        inArraysb,outArraysb=self.getRandomBatch(batchSize)
+                        fillArraySet(inArrays,inArraysb)
+                        fillArraySet(outArrays,outArraysb)
+                        
+                        p.map(applyAugments,procIndices)
+
+                        batchQueue.put((fromShared(inAugs),fromShared(outAugs)))
+                        
+            except Exception as e:
+                batchQueue.put(e)
+                
+        batchThread=threading.Thread(target=_batchThread,args=initargs)
+        batchThread.start()
+        
+        def _get():
+            v=batchQueue.get()
+            if not isinstance(v,tuple):
+                raise v
+                
+            return v
+        
+        try:
+            yield _get
+        finally:
+            isRunning=False
         
         
         
