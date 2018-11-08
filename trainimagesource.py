@@ -9,7 +9,7 @@ import threading
 import multiprocessing
 
 import numpy as np
-from scipy.ndimage import shift,zoom,rotate, geometric_transform
+from scipy.ndimage import shift,zoom,rotate, geometric_transform, map_coordinates
 from scipy.ndimage.filters import gaussian_filter
 from scipy.interpolate import interp2d 
 
@@ -121,6 +121,34 @@ def zoomMaskAugment(img,mask,margin=5,zoomrange=0.2,prob=0.5,maxcount=10):
             return img,mask
         
     return _copyzoom(img,zx,zy),tempmask
+
+
+def _mapImageChannels(image,indices):
+    if len(image.shape)==2:
+        result=map_coordinates(image,indices, order=1, mode='constant').reshape(image.shape)
+    else:
+        result=np.concatenate([_mapImageChannels(image[...,i],indices) for i in range(image.shape[-1])])
+        
+    return result.reshape(image.shape)
+    
+    
+def deformBothAugmentPIL(image,seg,defrange=25,numControls=3,margin=2):
+    from PIL import Image
+    
+    h,w = image.shape[:2]
+    
+    imshift=np.zeros((2,numControls+margin*2,numControls+margin*2))
+    imshift[:,margin:-margin,margin:-margin]=np.random.randint(-defrange,defrange,(2,numControls,numControls))
+
+    imshiftx=np.array(Image.fromarray(imshift[0]).resize((w,h),Image.QUAD))
+    imshifty=np.array(Image.fromarray(imshift[1]).resize((w,h),Image.QUAD))
+        
+    y,x=np.meshgrid(np.arange(w), np.arange(h))
+    indices=np.reshape(x+imshiftx, (-1, 1)),np.reshape(y+imshifty, (-1, 1))
+
+    imagedef=_mapImageChannels(image,indices)
+    segdef=_mapImageChannels(seg,indices)
+    return imagedef,segdef
 
 
 def _mapping(coords,interx,intery):

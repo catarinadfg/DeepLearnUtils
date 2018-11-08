@@ -35,7 +35,6 @@ def createDataGenerator(inArrays,outArrays):
         outShape=outArrays.shape
         
     assert inShape[0]==outShape[0]
-    indices=list(range(inShape[0]))
     
     def getData(batchSize=None,selectProbs=None,chosenInds=None):
         if chosenInds is None:
@@ -107,7 +106,8 @@ def init(inArrays_,outArrays_,inAugs_,outAugs_,augments_):
     inAugs=fromShared(inAugs_)
     outAugs=fromShared(outAugs_)
     
-    augments=[types.FunctionType(marshal.loads(a),globals()) for a in augments_]
+    #augments=[types.FunctionType(marshal.loads(a),globals()) for a in augments_]
+    augments=augments_
     
     
 def applyAugments(indices):
@@ -190,9 +190,6 @@ class DataSource(object):
                         ina,outa=self.applyAugments(getArraySet(inArrays,i),getArraySet(outArrays,i))
                         writeArraySet(inAugs,ina,i)
                         writeArraySet(outAugs,outa,i)
-#                         ina,outa=self.applyAugments(inArrays[i],outArrays[i])
-#                         inAugs[i]=ina
-#                         outAugs[i]=outa
                 
                 for indices in threadIndices:
                     t=threading.Thread(target=_generateForIndices,args=(indices,))
@@ -225,13 +222,13 @@ class DataSource(object):
         inAugs=createZeroArraySet(inAugTest,(batchSize,))
         outAugs=createZeroArraySet(outAugTest,(batchSize,))
         
+        # convert original and augmented arrays to shared arrays
         inArrays=toShared(inArrays)
         outArrays=toShared(outArrays)
-        
         inAugs=toShared(inAugs)
         outAugs=toShared(outAugs)
         
-        maugs=[marshal.dumps(aug.__code__) for aug in self.augments]
+        maugs=self.augments#[marshal.dumps(aug.__code__) for aug in self.augments]
         initargs=(inArrays,outArrays,inAugs,outAugs,maugs)
         
                
@@ -242,15 +239,18 @@ class DataSource(object):
                 with mp.Pool(numProcs,initializer=init,initargs=initargs) as p:
                     inArrays=fromShared(inArrays)
                     outArrays=fromShared(outArrays)
+                    inAugs=fromShared(inAugs)
+                    outAugs=fromShared(outAugs)
                         
                     while isRunning:
                         inArraysb,outArraysb=self.getRandomBatch(batchSize)
                         fillArraySet(inArrays,inArraysb)
                         fillArraySet(outArrays,outArraysb)
                         
-                        p.map(applyAugments,procIndices)
+                        if maugs:
+                            p.map(applyAugments,procIndices)
 
-                        batchQueue.put((fromShared(inAugs),fromShared(outAugs)))
+                        batchQueue.put((inAugs,outAugs))
                         
             except Exception as e:
                 batchQueue.put(e)
