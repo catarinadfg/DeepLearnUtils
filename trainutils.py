@@ -4,7 +4,7 @@
 
 from __future__ import division, print_function
 import subprocess, re, time, platform, threading
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -271,35 +271,54 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     return fig,ims
     
 
-class JupyterThreadMonitor(object):
-    def __init__(self):
+class JupyterThreadMonitor(threading.Thread):
+    def __init__(self,*args,**kwargs):
+        threading.Thread.__init__(self,*args,**kwargs)
+        
         from IPython.core.display import display, clear_output
         self._display=display
         self._clear_output=clear_output
-        self.graphVals=defaultdict(list)
-        self.imageVals={}
+        self.graphVals=OrderedDict()
+        self.imageVals=OrderedDict()
+        self.graphAvgLen=50
         self.step=0
         self.isRunning=True
         self.fig=None
         self.lock=threading.Lock()
         
-    def updateGraphVals(self,vals):
+    def stop(self):
+        self.isRunning=False
+        self.join()
+        
+    def updateGraphVals(self,vals,calcAvgs=()):
         with self.lock:
             for k,v in vals.items():
-                self.graphVals[k].append(v)
+                self.graphVals.setdefault(k,[]).append(v)
+                
+                if k in calcAvgs:
+                    av=np.average(self.graphVals[k][-self.graphAvgLen:])
+                    self.graphVals.setdefault(k+' (Avg)',[]).append(av)
+#                if k not in self.graphVals:
+#                    self.graphVals[k]=[]
+#                    
+#                self.graphVals[k].append(v)
                 
     def updateImageVals(self,vals):
         with self.lock:
             self.imageVals.update(vals)
             
     def displayMonitor(self,delay=1.0):
-        while self.isRunning:
+        while self.isRunning and self.is_alive():
             with self.lock:
                 self.fig,ax=plotGraphImages('Train Values Step %i'%(self.step,),self.graphVals,self.imageVals,fig=self.fig)
                 
             self._clear_output(wait=True)
             self._display(plt.gcf())
             time.sleep(delay)
+            
+        self.fig,ax=plotGraphImages('Train Values Step %i (Stopped)'%(self.step,),self.graphVals,self.imageVals,fig=self.fig)
+        self._display(plt.gcf())
+        self._clear_output(wait=True)
             
     
 if __name__=='__main__':
