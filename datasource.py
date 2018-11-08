@@ -2,8 +2,7 @@
 from __future__ import division, print_function
 import threading
 import multiprocessing as mp
-import marshal
-import types
+import platform
 from multiprocessing import sharedctypes
 from contextlib import contextmanager
 
@@ -106,7 +105,6 @@ def init(inArrays_,outArrays_,inAugs_,outAugs_,augments_):
     inAugs=fromShared(inAugs_)
     outAugs=fromShared(outAugs_)
     
-    #augments=[types.FunctionType(marshal.loads(a),globals()) for a in augments_]
     augments=augments_
     
     
@@ -127,27 +125,6 @@ def applyAugments(indices):
         writeArraySet(inAugs,ina,i)
         writeArraySet(outAugs,outa,i)
         
-
-# class AugmentProcess(mp.Process):
-    
-#     def __init__(self,isRunning,start,end,inArrays,outArrays,inAugs,outAugs,augments,**kwargs):
-#         mp.Process.__init__(self)
-#         self.isRunning=isRunning
-#         self.start=start
-#         self.end=end
-#         self.inArrays=fromShared(inArrays)
-#         self.outArrays=fromShared(outArrays)
-#         self.inAugs=fromShared(inAugs)
-#         self.outAugs=fromShared(outAugs)
-        
-#         execglobals=dict(globals())
-#         execglobals.update(cglobals)
-        
-#         self.augments=[types.FunctionType(marshal.loads(a),execglobals) for a in augments]
-        
-#     def run(self):
-#         pass
-    
     
 class DataSource(object):
     def __init__(self,inArrays=None,outArrays=None,dataGen=None,selectProbs=None,augments=[]):
@@ -208,9 +185,15 @@ class DataSource(object):
             yield batchQueue.get
         finally:
             isRunning=False
+            try:
+                batchQueue.get(False) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
+            except queue.Empty:
+                pass
             
     @contextmanager
     def processBatchGen(self,batchSize,numProcs=None):
+        assert platform.system().lower()!='windows', 'Generating batches with processes requires fork() semantics not present in Windows.'
+        
         numProcs=min(batchSize,numProcs or mp.cpu_count())
         procIndices=np.array_split(np.arange(batchSize),numProcs)
         isRunning=True
@@ -228,9 +211,8 @@ class DataSource(object):
         inAugs=toShared(inAugs)
         outAugs=toShared(outAugs)
         
-        maugs=self.augments#[marshal.dumps(aug.__code__) for aug in self.augments]
+        maugs=self.augments
         initargs=(inArrays,outArrays,inAugs,outAugs,maugs)
-        
                
         def _batchThread(inArrays,outArrays,inAugs,outAugs,maugs):
             try:
@@ -269,6 +251,10 @@ class DataSource(object):
             yield _get
         finally:
             isRunning=False
+            try:
+                batchQueue.get(False) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
+            except queue.Empty:
+                pass
         
         
         
