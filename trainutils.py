@@ -4,7 +4,7 @@
 
 from __future__ import division, print_function
 import subprocess, re, time, platform, threading
-from collections import defaultdict, OrderedDict
+from collections import OrderedDict
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -298,10 +298,6 @@ class JupyterThreadMonitor(threading.Thread):
                 if k in calcAvgs:
                     av=np.average(self.graphVals[k][-self.graphAvgLen:])
                     self.graphVals.setdefault(k+' (Avg)',[]).append(av)
-#                if k not in self.graphVals:
-#                    self.graphVals[k]=[]
-#                    
-#                self.graphVals[k].append(v)
                 
     def updateImageVals(self,vals):
         with self.lock:
