@@ -6,6 +6,7 @@ from collections import OrderedDict
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 from torch.nn.modules.loss import _Loss
 
 
@@ -41,8 +42,6 @@ def samePadding(kernelsize):
     
 
 class DiceLoss(_Loss):
-    softmax=nn.Softmax2d()
-        
     def forward(self, source, target, smooth=1e-5):
         '''
         Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
@@ -63,7 +62,7 @@ class DiceLoss(_Loss):
             
             assert target1hot.shape==source.shape
             
-            probs = self.softmax(source)
+            probs = F.softmax(source)
             tsum = target1hot.float().view(batchsize, -1)
         
         psum = probs.view(batchsize, -1)
@@ -74,6 +73,16 @@ class DiceLoss(_Loss):
         return 1 - score.sum() / batchsize
         
 
+class KLDivLoss(_Loss):
+    def __init__(self,reconLoss=torch.nn.BCELoss()):
+        _Loss.__init__(self)
+        self.reconLoss=reconLoss
+        
+    def forward(self,reconx, x, mu, logvar):
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # KL divergence loss
+        return KLD+self.reconLoss(reconx,x)
+        
+        
 class Convolution2D(nn.Module):
     def __init__(self,inChannels,outChannels,strides=1,kernelsize=3,instanceNorm=True,dropout=0):
         super(Convolution2D,self).__init__()
@@ -279,6 +288,73 @@ class AutoEncoder2D(nn.Module):
     def forward(self,x):
         return (self.conv(x),)
     
+    
+class VarAutoEncoder2D(nn.Module):
+    def __init__(self,inShape,latentSize,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0):
+        super(VarAutoEncoder2D,self).__init__()
+        assert len(channels)==len(strides)
+        self.inHeight,self.inWidth,self.inChannels=inShape
+        self.latentSize=latentSize
+        self.channels=channels
+        self.strides=strides
+        self.kernelsize=kernelsize
+        self.numSubunits=numSubunits
+        self.instanceNorm=instanceNorm
+        
+        self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
+        
+        self.encodeModules=[]
+        self.decodeModules=[]
+        echannel=self.inChannels
+        
+        # encoding stage
+        for i,(c,s) in enumerate(zip(channels,strides)):
+            self.encodeModules.append(('encode_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,instanceNorm,dropout)))
+            echannel=c
+            
+            self.finalSize=self.finalSize//s
+            
+        self.encodes=nn.Sequential(OrderedDict(self.encodeModules))
+        
+        linearSize=int(np.product(self.finalSize))*echannel
+        self.mu=nn.Linear(linearSize,self.latentSize)
+        self.logvar=nn.Linear(linearSize,self.latentSize)
+        self.decodeL=nn.Linear(self.latentSize,linearSize)
+            
+        # decoding stage
+        for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[self.inChannels],strides[::-1])):
+            self.decodeModules+=[
+                ('up_%i'%i,nn.ConvTranspose2d(echannel,echannel,self.kernelsize,s,1,s-1)),
+                ('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelsize,self.numSubunits,instanceNorm,dropout))
+            ]
+            echannel=c
+
+        self.decodes=nn.Sequential(OrderedDict(self.decodeModules))
+        
+    def encode(self,x):
+        x=self.encodes(x)
+        x=x.view(x.shape[0],-1)
+        mu=self.mu(x)
+        logvar=self.logvar(x)
+        return mu,logvar
+        
+    def decode(self,z):
+        x=F.relu(self.decodeL(z))
+        x=x.view(x.shape[0],self.channels[-1],self.finalSize[0],self.finalSize[1])
+        x=self.decodes(x)
+        x=torch.sigmoid(x)
+        return x
+        
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5*logvar)
+        eps = torch.randn_like(std)
+        return eps.mul(std).add_(mu)
+        
+    def forward(self, x):
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        return self.decode(z), mu, logvar, z
+        
     
 class BaseUnet(nn.Module):
     def __init__(self,inChannels,numClasses,channels,strides,upsampleKernelSize=3):

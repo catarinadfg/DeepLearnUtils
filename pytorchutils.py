@@ -50,6 +50,7 @@ class NetworkManager(object):
         self.traininputs=None
         self.netoutputs=None
         self.lossoutput=None
+        self.isRunning=True
         
         self.savedir=None
         self.logfilename='train.log'
@@ -130,17 +131,18 @@ class NetworkManager(object):
         '''Convert the PyTorch Tensor `arr' to a Numpy array.'''
         return arr.cpu().data.numpy()
 
-    def train(self,inputfunc,steps,savesteps=5):
+    def train(self,inputfunc,steps,substeps=1,savesteps=5):
         '''
         Train the network for `step' number of steps starting at 1, saving `savesteps' number of times at regular 
         intervals. The callable `inputfunc' is expected to take no arguments and return a tuple pf batch Numpy arrays of 
         shape, B, BC, BCHW or BCDHW. A train step is composed of these steps:
-            1. `inputfunc' is called, each returned value is converted to a Variable, then assigned to self.traininputs
-            2. self.netForward() is called and results assigned to self.netoutputs
-            3. self.lossForward() is called and results assigned to self.lossoutput
-            4. The optimizer performs one training step
-            5. self.updateStep() is called and the loss value is assigned to self.params['loss']
-            6. If the model is saved on the current step, self.save() is used to save then self.saveStep() is called
+            1. `inputfunc' is called, each returned value is converted to a tensor, then assigned to self.traininputs
+            2. For `substeps' number of times:
+              a. self.netForward() is called and results assigned to self.netoutputs
+              b. self.lossForward() is called and results assigned to self.lossoutput
+              c. The optimizer performs one training step
+            3. self.updateStep() is called and the loss value is assigned to self.params['loss']
+            4. If the model is saved on the current step, self.save() is used to save then self.saveStep() is called
             
         Throughout the training process self.log() is called regularly to save logging information.
         '''
@@ -153,27 +155,32 @@ class NetworkManager(object):
             
             self.log('Params:',self.params)
             self.log('Savedir:',self.savedir)
+            self.isRunning=True
             
             for s in range(1,steps+1):
                 self.log('Timestep',s,'/',steps)
                 
-                self.traininputs=[self.convertArray(arr) for arr in inputfunc()]                
-                self.netoutputs=self.netForward()
-            
-                self.lossoutput=self.lossForward()
+                self.traininputs=[self.convertArray(arr) for arr in inputfunc()] 
                 
-                self.opt.zero_grad()
-                self.lossoutput.backward()
-                self.opt.step()
+                for sub in range(substeps):
+                    self.netoutputs=self.netForward()
+                    self.lossoutput=self.lossForward()
+                    
+                    self.opt.zero_grad()
+                    self.lossoutput.backward()
+                    self.opt.step()
             
                 lossval=self.lossoutput.item()
                 self.log('Loss:',lossval)
                 self.updateStep(s,lossval)
                 self.params['loss']=lossval
             
-                if self.savedir and (s==steps or (savesteps>0 and (s%(steps//savesteps))==0)):
+                if self.savedir and (s==steps or not self.isRunning or (savesteps>0 and (s%(steps//savesteps))==0)):
                     self.save(os.path.join(self.savedir,'net_%.6i.pth'%s))
                     self.saveStep(s,lossval)
+                    
+                if not self.isRunning:
+                    break
                     
         except Exception as e:
             self.log(e)
@@ -298,6 +305,28 @@ class AutoEncoderMgr(NetworkManager):
         imgs=self.traininputs[-1]
         logits=self.netoutputs[0]
         return self.loss(logits,imgs)
+    
+    
+class VarAutoEncoderMgr(NetworkManager):
+    '''
+    Basic manager subtype for autoencoders, specifying Adam as the optimizer with params['learningRate'] used as
+    the learn rate, and a loss function defined as BCEWithLogitsLoss. This expects the first value in self.traininputs 
+    to be the input images and the last to be the output images, and the first value in self.netoutputs to be the logits.
+    '''
+    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
+        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
+        loss=loss if loss is not None else pytorchnet.KLDivLoss()
+        
+        super(VarAutoEncoderMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,**params)
+    
+    def netForward(self):
+        images=self.traininputs[0]
+        return self.net(images)
+    
+    def lossForward(self):
+        outs=self.traininputs[1]
+        recon,mu, logvar, _=self.netoutputs
+        return self.loss(recon,outs,mu,logvar)
     
     
 class ImageClassifierMgr(NetworkManager):
