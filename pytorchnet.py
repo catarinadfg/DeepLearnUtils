@@ -74,11 +74,13 @@ class DiceLoss(_Loss):
         
 
 class KLDivLoss(_Loss):
-    def __init__(self,reconLoss=torch.nn.BCELoss()):
+    def __init__(self,reconLoss=torch.nn.BCELoss(reduction='sum')):
         _Loss.__init__(self)
         self.reconLoss=reconLoss
         
     def forward(self,reconx, x, mu, logvar):
+        assert x.min() >= 0. and x.max() <= 1.,'%f -> %f'%(x.min(), x.max() )
+        assert reconx.min() >= 0. and reconx.max() <= 1.,'%f -> %f'%(reconx.min(), reconx.max() )
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # KL divergence loss
         return KLD+self.reconLoss(reconx,x)
         
@@ -303,18 +305,18 @@ class VarAutoEncoder2D(nn.Module):
         
         self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
         
-        self.encodeModules=[]
-        self.decodeModules=[]
+        self.encodeModules=OrderedDict()
+        self.decodeModules=OrderedDict()
         echannel=self.inChannels
         
         # encoding stage
         for i,(c,s) in enumerate(zip(channels,strides)):
-            self.encodeModules.append(('encode_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelsize,self.numSubunits,instanceNorm,dropout)))
+            self.encodeModules['encode_%i'%i]=ResidualUnit2D(echannel,c,s,kernelsize,numSubunits,instanceNorm,dropout)
+            #self.encodeModules['encode_%i'%i]=Convolution2D(echannel,c,s,kernelsize,instanceNorm,dropout)
             echannel=c
-            
             self.finalSize=self.finalSize//s
             
-        self.encodes=nn.Sequential(OrderedDict(self.encodeModules))
+        self.encodes=nn.Sequential(self.encodeModules)
         
         linearSize=int(np.product(self.finalSize))*echannel
         self.mu=nn.Linear(linearSize,self.latentSize)
@@ -323,13 +325,12 @@ class VarAutoEncoder2D(nn.Module):
             
         # decoding stage
         for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[self.inChannels],strides[::-1])):
-            self.decodeModules+=[
-                ('up_%i'%i,nn.ConvTranspose2d(echannel,echannel,self.kernelsize,s,1,s-1)),
-                ('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelsize,self.numSubunits,instanceNorm,dropout))
-            ]
+            self.decodeModules['up_%i'%i]=nn.ConvTranspose2d(echannel,echannel,kernelsize,s,1,s-1)
+            self.decodeModules['decode_%i'%i]=ResidualUnit2D(echannel,c,1,kernelsize,numSubunits,instanceNorm,dropout)
+            #self.decodeModules['decode_%i'%i]=Convolution2D(echannel,c,1,kernelsize,instanceNorm,dropout)
             echannel=c
 
-        self.decodes=nn.Sequential(OrderedDict(self.decodeModules))
+        self.decodes=nn.Sequential(self.decodeModules)
         
     def encode(self,x):
         x=self.encodes(x)

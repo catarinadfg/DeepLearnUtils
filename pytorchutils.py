@@ -35,7 +35,7 @@ class NetworkManager(object):
     method descriptions for netForward(), lossForward(), train(), and evaluate() explain the necessary details to 
     implementing a subtype of this class.
     '''
-    def __init__(self,net,opt,loss,isCuda=True,savedirprefix=None,**params):
+    def __init__(self,net,loss,isCuda=True,savedirprefix=None,opt=None,**params):
         '''
         Initialize the manager with the given network `net' to be managed, optimizer `opt', and loss function `loss'.
         If `isCuda' is True the network and inputs are converted to cuda tensors. The `savedirprefix' is the prefix for
@@ -57,6 +57,9 @@ class NetworkManager(object):
         
         if isCuda:
             self.net=self.net.cuda()
+            
+        if self.opt is None:
+            self.opt=torch.optim.Adam(self.net.parameters(),lr=params.get('learningRate',1e-3))
 
         if savedirprefix is not None:
             if os.path.exists(savedirprefix):
@@ -65,15 +68,6 @@ class NetworkManager(object):
             else:
                 self.savedir='%s-%s'%(savedirprefix,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
                 os.mkdir(self.savedir)
-                
-    def log(self,*items):
-        '''Log the given values to self.logfilename is the save directory.'''
-        dt=datetime.datetime.now().strftime('%Y%m%d-%H:%M:%S: ')
-        msg=dt+' '.join(map(str,items))
-        
-        if self.savedir:
-            with open(os.path.join(self.savedir,self.logfilename),'a') as o:
-                print(msg,file=o)
                 
     def updateStep(self,step,steploss):
         '''Called after every train step, with arguments for the step number and loss at that step.'''
@@ -104,6 +98,15 @@ class NetworkManager(object):
         return the results from that. This method must be overridden.
         '''
         pass
+                
+    def log(self,*items):
+        '''Log the given values to self.logfilename is the save directory.'''
+        dt=datetime.datetime.now().strftime('%Y%m%d-%H:%M:%S: ')
+        msg=dt+' '.join(map(str,items))
+        
+        if self.savedir:
+            with open(os.path.join(self.savedir,self.logfilename),'a') as o:
+                print(msg,file=o)
     
     def reload(self):
         '''Reload the network by loading the most recent .pth file in the save directory if there is one.'''
@@ -270,10 +273,9 @@ class SegmentMgr(NetworkManager):
     be the images and the last to be the masks, and the first value in self.netoutputs to be the logits.
     '''
     def __init__(self,net,isCuda=True,savedirprefix=None,**params):
-        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
         loss=params.get('loss',pytorchnet.DiceLoss())
         
-        super(SegmentMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,**params)
+        super(SegmentMgr,self).__init__(net,loss,isCuda,savedirprefix,**params)
     
     def netForward(self):
         images=self.traininputs[0]
@@ -292,10 +294,9 @@ class AutoEncoderMgr(NetworkManager):
     to be the input images and the last to be the output images, and the first value in self.netoutputs to be the logits.
     '''
     def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
-        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
         loss=loss if loss is not None else torch.nn.BCEWithLogitsLoss()
         
-        super(AutoEncoderMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,**params)
+        super(AutoEncoderMgr,self).__init__(net,loss,isCuda,savedirprefix,**params)
     
     def netForward(self):
         images=self.traininputs[0]
@@ -308,23 +309,17 @@ class AutoEncoderMgr(NetworkManager):
     
     
 class VarAutoEncoderMgr(NetworkManager):
-    '''
-    Basic manager subtype for autoencoders, specifying Adam as the optimizer with params['learningRate'] used as
-    the learn rate, and a loss function defined as BCEWithLogitsLoss. This expects the first value in self.traininputs 
-    to be the input images and the last to be the output images, and the first value in self.netoutputs to be the logits.
-    '''
     def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
-        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
         loss=loss if loss is not None else pytorchnet.KLDivLoss()
         
-        super(VarAutoEncoderMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,**params)
+        super(VarAutoEncoderMgr,self).__init__(net,loss,isCuda,savedirprefix,**params)
     
     def netForward(self):
         images=self.traininputs[0]
         return self.net(images)
     
     def lossForward(self):
-        outs=self.traininputs[1]
+        outs=self.traininputs[-1]
         recon,mu, logvar, _=self.netoutputs
         return self.loss(recon,outs,mu,logvar)
     
@@ -332,15 +327,14 @@ class VarAutoEncoderMgr(NetworkManager):
 class ImageClassifierMgr(NetworkManager):
     '''
     Basic manager subtype for classifier networks, specifying Adam as the optimizer with params['learningRate'] used as
-    the learn rate, and a loss function defined as MSELoss. This expects the first value in self.traininputs to be the 
-    input images and the last to be the category labels, and the first value in self.netoutputs to be the one-hot vector
-    of predictions, ie. of dimensions (batch,# of categories).
+    the learn rate, and a loss function defined as CrossEntropyLoss. This expects the first value in self.traininputs to 
+    be the input images and the last to be the 1D category labels vector, and the first value in self.netoutputs to be 
+    the one-hot vector of predictions, ie. of dimensions BC or (batch,# of categories).
     '''
     def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
-        opt=torch.optim.Adam(net.parameters(),lr=params.get('learningRate',1e-3))
-        loss=loss if loss is not None else torch.nn.MSELoss()
+        loss=loss if loss is not None else torch.nn.CrossEntropyLoss()
         
-        super(ImageClassifierMgr,self).__init__(net,opt,loss,isCuda,savedirprefix,**params)
+        super(ImageClassifierMgr,self).__init__(net,loss,isCuda,savedirprefix,**params)
         
     def netForward(self):
         images=self.traininputs[0]

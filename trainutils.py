@@ -315,6 +315,10 @@ class JupyterThreadMonitor(threading.Thread):
         self.fig,ax=plotGraphImages('Train Values Step %i (Stopped)'%(self.step,),self.graphVals,self.imageVals,fig=self.fig)
         self._display(plt.gcf())
         self._clear_output(wait=True)
+        
+    def status(self):
+        msg='Alive: %s, Step: %i, Values: %r'%(self.is_alive(),self.step,{k:v[-1] for k,v in self.graphVals.items()})
+        return msg
             
     
 if __name__=='__main__':

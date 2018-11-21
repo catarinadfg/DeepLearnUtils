@@ -13,6 +13,7 @@ from scipy.ndimage import shift,zoom,rotate, geometric_transform, map_coordinate
 from scipy.ndimage.filters import gaussian_filter
 from scipy.interpolate import interp2d 
 
+from datasource import DataSource
 from trainutils import rescaleArray
     
 try:
@@ -333,81 +334,111 @@ def blurImgAugment(img,out,sigma=2):
     '''Blur `img' with gaussian filter using `sigma' with out unchanged.'''
     return img,gaussian_filter(out,sigma)
 
-    
-class TrainImageSource(object):
+
+class TrainImageSource(DataSource):
     '''
     Given a set of images and outputs associated with them, this defines an infinite queue of minibatches with image
     augmentations applied to either the image or both data elements.
     '''
     def __init__(self,images,outputs,augments=[],numthreads=None):
-        '''
-        Initialize the queue with `images' as the image list and `outputs' as the list of associated per-image out values.
-        The `images' array is expected to be in BHWC or BDHWC index ordering.
-        '''
-        assert images.shape[0]==outputs.shape[0],'%r != %r'%(images.shape[0],outputs.shape[0])
-        
-        self.images=images
-        self.outputs=outputs
-        self.numthreads=numthreads
-        self.indices=list(range(self.images.shape[0]))
-        self.probs=np.ones((self.images.shape[0],),np.float32)
-        self.augments=list(augments)
+        DataSource.__init__(self,images,outputs,augments=augments,selectProbs=np.ones((images.shape[0],),np.float32))
         self.batchthread=None
         self.batchqueue=None
         
-        imgtest,outtest=self._generateImagePair()
-        self.imgshape=imgtest.shape
-        self.imgtype=imgtest.dtype
-        self.outshape=() if (outtest.ndim==1 and outtest.shape[0]==1) else outtest.shape
-        self.outtype=outtest.dtype
-        
     def getBatch(self,numimgs):
-        imgs=np.ndarray((numimgs,)+self.imgshape,self.imgtype)
-        outs=np.ndarray((numimgs,)+self.outshape,self.outtype)
-        numthreads=min(numimgs,self.numthreads or multiprocessing.cpu_count())
-        threads=[]
+        with self.threadBatchGen(numimgs) as gen:
+            return gen()
         
-        chosenindices=np.random.choice(self.indices,numimgs,p=self.probs/self.probs.sum())
-        
-        indexpairs=np.stack([np.arange(numimgs),chosenindices],axis=1)
-
-        def _generateForIndices(indices):
-            for n,c in indices:
-                imgs[n],outs[n]=self._generateImagePair(c)
-                
-        for indices in np.array_split(indexpairs,numthreads):
-            t=threading.Thread(target=_generateForIndices,args=(indices,))
-            t.start()
-            threads.append(t)
-            
-        for t in threads:
-            t.join()
-        
-        return imgs,outs
-    
-    def _generateImagePair(self,index=None):
-        randomindex=index if index is not None else random.choice(self.indices)
-        img=self.images[randomindex]
-        out=self.outputs[randomindex]
-        
-        # apply each augment to the image and mask, giving each a 50% chance of being used if self.randomizeAugs is True
-        for aug in self.augments:
-            img,out=aug(img,out)
-                    
-        return img,out
-    
     def getAsyncFunc(self,numimgs,queueLength=1):
         if self.batchqueue is None:
             self.batchqueue=queue.Queue(queueLength)
             
             def _batchThread():
-                while True:
-                        self.batchqueue.put(self.getBatch(numimgs))
+                with self.threadBatchGen(numimgs) as gen:
+                    while True:
+                        self.batchqueue.put(gen())
                     
             self.batchthread=threading.Thread(target=_batchThread)
             self.batchthread.daemon=True
             self.batchthread.start()
         
         return self.batchqueue.get
+        
+            
+# class TrainImageSource(object):
+#     '''
+#     Given a set of images and outputs associated with them, this defines an infinite queue of minibatches with image
+#     augmentations applied to either the image or both data elements.
+#     '''
+#     def __init__(self,images,outputs,augments=[],numthreads=None):
+#         '''
+#         Initialize the queue with `images' as the image list and `outputs' as the list of associated per-image out values.
+#         The `images' array is expected to be in BHWC or BDHWC index ordering.
+#         '''
+#         assert images.shape[0]==outputs.shape[0],'%r != %r'%(images.shape[0],outputs.shape[0])
+        
+#         self.images=images
+#         self.outputs=outputs
+#         self.numthreads=numthreads
+#         self.indices=list(range(self.images.shape[0]))
+#         self.probs=np.ones((self.images.shape[0],),np.float32)
+#         self.augments=list(augments)
+#         self.batchthread=None
+#         self.batchqueue=None
+        
+#         imgtest,outtest=self._generateImagePair()
+#         self.imgshape=imgtest.shape
+#         self.imgtype=imgtest.dtype
+#         self.outshape=() if (outtest.ndim==1 and outtest.shape[0]==1) else outtest.shape
+#         self.outtype=outtest.dtype
+        
+#     def getBatch(self,numimgs):
+#         imgs=np.ndarray((numimgs,)+self.imgshape,self.imgtype)
+#         outs=np.ndarray((numimgs,)+self.outshape,self.outtype)
+#         numthreads=min(numimgs,self.numthreads or multiprocessing.cpu_count())
+#         threads=[]
+        
+#         chosenindices=np.random.choice(self.indices,numimgs,p=self.probs/self.probs.sum())
+        
+#         indexpairs=np.stack([np.arange(numimgs),chosenindices],axis=1)
+
+#         def _generateForIndices(indices):
+#             for n,c in indices:
+#                 imgs[n],outs[n]=self._generateImagePair(c)
+                
+#         for indices in np.array_split(indexpairs,numthreads):
+#             t=threading.Thread(target=_generateForIndices,args=(indices,))
+#             t.start()
+#             threads.append(t)
+            
+#         for t in threads:
+#             t.join()
+        
+#         return imgs,outs
+    
+#     def _generateImagePair(self,index=None):
+#         randomindex=index if index is not None else random.choice(self.indices)
+#         img=self.images[randomindex]
+#         out=self.outputs[randomindex]
+        
+#         # apply each augment to the image and mask, giving each a 50% chance of being used if self.randomizeAugs is True
+#         for aug in self.augments:
+#             img,out=aug(img,out)
+                    
+#         return img,out
+    
+#     def getAsyncFunc(self,numimgs,queueLength=1):
+#         if self.batchqueue is None:
+#             self.batchqueue=queue.Queue(queueLength)
+            
+#             def _batchThread():
+#                 while True:
+#                     self.batchqueue.put(self.getBatch(numimgs))
+                    
+#             self.batchthread=threading.Thread(target=_batchThread)
+#             self.batchthread.daemon=True
+#             self.batchthread.start()
+        
+#         return self.batchqueue.get
     
     
