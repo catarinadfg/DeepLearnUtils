@@ -93,7 +93,7 @@ def fromShared(arrays):
         return np.ctypeslib.as_array(arrays)
 
         
-def init(inArrays_,outArrays_,inAugs_,outAugs_,augments_):
+def initProc(inArrays_,outArrays_,inAugs_,outAugs_,augments_):
     global inArrays
     global outArrays
     global inAugs
@@ -108,7 +108,7 @@ def init(inArrays_,outArrays_,inAugs_,outAugs_,augments_):
     augments=augments_
     
     
-def applyAugments(indices):
+def applyAugmentsProc(indices):
     global inArrays
     global outArrays
     global inAugs
@@ -127,32 +127,69 @@ def applyAugments(indices):
         
     
 class DataSource(object):
+    '''
+    Class for generating data batches from array data. It takes as input arrays of input and output data (of tuples of
+    arrays) or a data generation function. Whenever a batch is requested these are used to create a batch of images which
+    have been aplied to a list of augmentation functions to modify the data. Two context manager methods are provided for
+    generating these batches in separate threads or separate processes. 
+    '''
     def __init__(self,inArrays=None,outArrays=None,dataGen=None,selectProbs=None,augments=[]):
+        '''
+        Initialize the source with either data arrays or a data generation function. If `dataGen' is None then `inArrays'
+        and `outArrays' must be provided and be numpy arrays or tuples thereof, createDataGenerator() is used to create
+        the generator function with these as input. The `augments' list is the list of augment callables which batches
+        are passed through before being returned. Each such callable is expected to take as input two numpy arrays (or
+        tuples thereof) each containing a single instance of a data value (eg. a single image). All arrays in `inArrays'
+        and `outArrays' are expected to be in BH[W][D]C ordering, that is batch is first dimensino and channels last.
+        
+        If `dataGen' is provided it must be a callable accepting 3 arguments (batchSize, selectProbs, chosenInds):
+          -If batchSize is given the callable should return a pair of numpy arrays (or tuples thereof) with batchSize 
+           number of entries. If selectProbs is given (which would be the `selectProbs' argument for this method) this 
+           should be the selecting probability for each value in the source arrays from which random selections are taken. 
+        
+          -If chosenInds is provided then these indices from the source arrays are returned instead rather than batchSize 
+           number of random selections; in this case batchSize and selectProbs are ignored.
+        '''
         self.dataGen=dataGen or createDataGenerator(inArrays,outArrays)
         self.selectProbs=selectProbs
         self.augments=augments
         
     def getRandomBatch(self,batchSize):
+        '''Call the generator callable with the given `batchSize' value with self.selectProb as the second argument.'''
         return self.dataGen(batchSize,self.selectProbs)
     
     def getIndexBatch(self,chosenInds):
+        '''Call the generator callable with `chosenInds' as the chosen indices to select values from.'''
         return self.dataGen(chosenInds=chosenInds)
     
-    def applyAugments(self,inArrays,outArrays):
+    def getAugmentedArrays(self,inArrays,outArrays):
+        '''Apply the augmentations to single-instance input and output arrays.'''
         for aug in self.augments:
             inArrays,outArrays=aug(inArrays,outArrays)
             
         return inArrays,outArrays
     
+    def applyAugments(self,inArrays,outArrays,inAugArrays,outAugArrays,indices=None):
+        '''Apply the augmentations to batch input and output arrays at `indices' or for the whole arrays if not given.'''
+        if indices is None:
+            arr=inArrays[0] if isinstance(inArrays,tuple) else inArrays # assumes all arrays are the same length
+            indices=range(arr.shape[0])
+            
+        for i in indices:
+            ina,outa=self.getAugmentedArrays(getArraySet(inArrays,i),getArraySet(outArrays,i))
+            writeArraySet(inAugArrays,ina,i)
+            writeArraySet(outAugArrays,outa,i)
+    
     @contextmanager
     def threadBatchGen(self,batchSize,numThreads=None):
+        '''Yields a callable object which produces `batchSize' batches generated in `numThreads' threads.'''
         numThreads=min(batchSize,numThreads or mp.cpu_count())
         threadIndices=np.array_split(np.arange(batchSize),numThreads)
         isRunning=True
         batchQueue=queue.Queue(1)
         
         inArrays,outArrays=self.getIndexBatch([0])
-        inAugTest,outAugTest=self.applyAugments(getArraySet(inArrays,0),getArraySet(outArrays,0))
+        inAugTest,outAugTest=self.getAugmentedArrays(getArraySet(inArrays,0),getArraySet(outArrays,0))
         
         inAugs=createZeroArraySet(inAugTest,(batchSize,))
         outAugs=createZeroArraySet(outAugTest,(batchSize,))
@@ -162,14 +199,8 @@ class DataSource(object):
                 threads=[]
                 inArrays,outArrays=self.getRandomBatch(batchSize)
                 
-                def _generateForIndices(indices):
-                    for i in indices:
-                        ina,outa=self.applyAugments(getArraySet(inArrays,i),getArraySet(outArrays,i))
-                        writeArraySet(inAugs,ina,i)
-                        writeArraySet(outAugs,outa,i)
-                
                 for indices in threadIndices:
-                    t=threading.Thread(target=_generateForIndices,args=(indices,))
+                    t=threading.Thread(target=self.applyAugments,args=(inArrays,outArrays,inAugs,outAugs,indices))
                     t.start()
                     threads.append(t)
                     
@@ -192,15 +223,16 @@ class DataSource(object):
             
     @contextmanager
     def processBatchGen(self,batchSize,numProcs=None):
+        '''Yields a callable object which produces `batchSize' batches generated in `numProcs' subprocesses.'''
         assert platform.system().lower()!='windows', 'Generating batches with processes requires fork() semantics not present in Windows.'
         
         numProcs=min(batchSize,numProcs or mp.cpu_count())
         procIndices=np.array_split(np.arange(batchSize),numProcs)
         isRunning=True
-        batchQueue=queue.Queue(1)
+        batchQueue=mp.Queue(1)
         
         inArrays,outArrays=self.getRandomBatch(batchSize)
-        inAugTest,outAugTest=self.applyAugments(getArraySet(inArrays,0),getArraySet(outArrays,0))
+        inAugTest,outAugTest=self.getAugmentedArrays(getArraySet(inArrays,0),getArraySet(outArrays,0))
         
         inAugs=createZeroArraySet(inAugTest,(batchSize,))
         outAugs=createZeroArraySet(outAugTest,(batchSize,))
@@ -218,7 +250,7 @@ class DataSource(object):
             try:
                 initargs=(inArrays,outArrays,inAugs,outAugs,maugs)
                 
-                with mp.Pool(numProcs,initializer=init,initargs=initargs) as p:
+                with mp.Pool(numProcs,initializer=initProc,initargs=initargs) as p:
                     inArrays=fromShared(inArrays)
                     outArrays=fromShared(outArrays)
                     inAugs=fromShared(inAugs)
@@ -230,7 +262,7 @@ class DataSource(object):
                         fillArraySet(outArrays,outArraysb)
                         
                         if maugs:
-                            p.map(applyAugments,procIndices)
+                            p.map(applyAugmentsProc,procIndices)
 
                         batchQueue.put((inAugs,outAugs))
                         
