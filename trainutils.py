@@ -304,6 +304,8 @@ class JupyterThreadMonitor(threading.Thread):
             self.imageVals.update(vals)
             
     def displayMonitor(self,delay=10.0):
+        self.fig=None
+        
         while self.isRunning and self.is_alive():
             with self.lock:
                 self.fig,ax=plotGraphImages('Train Values Step %i'%(self.step,),self.graphVals,self.imageVals,fig=self.fig)

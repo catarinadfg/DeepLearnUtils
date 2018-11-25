@@ -62,6 +62,13 @@ def writeArraySet(arrays,writes,index):
     else:
         arrays[index]=writes
         
+
+def copyArraySet(arrays):
+    if isinstance(arrays,tuple):
+        return tuple(a.copy() for a in arrays)
+    else:
+        return arrays.copy()
+        
         
 def fillArraySet(arrays,writes):
     if isinstance(arrays,tuple):
@@ -207,7 +214,7 @@ class DataSource(object):
                 for t in threads:
                     t.join()
                     
-                batchQueue.put((inAugs,outAugs))
+                batchQueue.put((copyArraySet(inAugs),copyArraySet(outAugs)))
                 
         batchThread=threading.Thread(target=_batchThread)
         batchThread.start()
@@ -264,7 +271,7 @@ class DataSource(object):
                         if maugs:
                             p.map(applyAugmentsProc,procIndices)
 
-                        batchQueue.put((inAugs,outAugs))
+                        batchQueue.put((copyArraySet(inAugs),copyArraySet(outAugs)))
                         
             except Exception as e:
                 batchQueue.put(e)
