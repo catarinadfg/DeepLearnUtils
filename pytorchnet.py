@@ -54,17 +54,16 @@ class DiceLoss(_Loss):
         batchsize = target.size(0)
         
         if source.shape[1]==1:
-            probs = source.float().sigmoid()
-            tsum = target.float().view(batchsize, -1)
+            probs=source.float().sigmoid()
+            tsum=target
         else:
-            target1hot=oneHot2D(target,source.shape[1]) # BCHW -> BCHWN
-            target1hot=target1hot[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
+            probs=F.softmax(source)
+            tsum=oneHot2D(target,source.shape[1]) # BCHW -> BCHWN
+            tsum=tsum[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
             
-            assert target1hot.shape==source.shape
-            
-            probs = F.softmax(source)
-            tsum = target1hot.float().view(batchsize, -1)
+            assert tsum.shape==source.shape
         
+        tsum = tsum.float().view(batchsize, -1)
         psum = probs.view(batchsize, -1)
         intersection=psum*tsum
         sums=psum+tsum
