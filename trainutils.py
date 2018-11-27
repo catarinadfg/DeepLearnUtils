@@ -149,7 +149,12 @@ def cropCenterAxes(img,cropDims):
             start = max(0,img.shape[i]//2-(cropdim//2)) # start of slice, 0 if img.shape[i]<cropdim 
             slices[i]=slice(start,start+cropdim)
     
-    return img[slices]    
+    return img[tuple(slices)]    
+
+
+def flatten4DVolume(im):
+    '''Given a volume in HWDT ordering, reshape dimensions D and T to a single D dimension and reorder result axes to DHW.'''
+    return im.reshape((im.shape[0],im.shape[1],-1)).transpose((2,0,1))
 
 
 def stackImages(images,cropy,cropx,dtype=np.float32):
@@ -171,6 +176,18 @@ def stackImages(images,cropy,cropx,dtype=np.float32):
         pos+=d
         
     return output
+
+
+def tileStack(stack,cols,rows):
+    b=stack.shape[0]
+    stack=stack[:b-b%cols]
+    rows=min(rows,stack.shape[0]//cols)
+    out=[]
+    
+    for r in range(rows):
+        out.append([stack[r*cols+c] for c in range(cols)])
+        
+    return np.block(out)
 
 
 def comparePrediction(imgs,masks,logits,preds,title=''):
