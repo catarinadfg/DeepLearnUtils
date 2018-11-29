@@ -286,7 +286,7 @@ def plotSystemInfo(ax=None):
         
     inds=np.arange(len(cols))
     
-    bars=ax.barh(inds,cols)
+    bars=ax.barh(inds,cols,height=0.3)
     
     for b,c in zip(bars,colors):
         b.set_facecolor(c)
@@ -402,11 +402,11 @@ class JupyterThreadMonitor(threading.Thread):
             
     
 if __name__=='__main__':
-    im1=np.random.rand(5,10)
-    im2=np.random.rand(15,15)
-    fig=plt.figure(figsize=(8,6))
-    
-    f,ims=plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1},fig=fig)
+#    im1=np.random.rand(5,10)
+#    im2=np.random.rand(15,15)
+#    fig=plt.figure(figsize=(8,6))
+#    
+#    f,ims=plotGraphImages('graph',{'x':[0,1,2,1],'y':[4,5,0,-1]},{'im1':im1},fig=fig)
 #    plt.tight_layout(pad=0.0, w_pad=0.0, h_pad=0.0)
     
 #    print(getNvidiaInfo())
@@ -416,4 +416,6 @@ if __name__=='__main__':
 #    for cpu,load in getCpuInfo().items():
 #        print(cpu,load)
 
-    #ax=plotSystemInfo()
+    plt.rcParams['figure.figsize']=[6,2]
+    ax=plotSystemInfo()
+    
