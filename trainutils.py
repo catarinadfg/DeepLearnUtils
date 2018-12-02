@@ -118,6 +118,11 @@ def rescaleArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
     return (norm*(maxv-minv))+minv # rescale by minv and maxv, which is the normalized array by default
 
 
+def rescaleArrayIntMax(arr,dtype=np.uint16):
+    info=np.iinfo(dtype)
+    return rescaleArray(arr,info.min,info.max).astype(dtype)
+
+
 def cropCenter(img,cropy,cropx,startAxis=0):
     '''
     Crop the center of the given array `img' along the dimensions `startAxis' and `startAxis'+1.
@@ -135,11 +140,11 @@ def cropCenter(img,cropy,cropx,startAxis=0):
     #return img[starty:starty+cropy,startx:startx+cropx]
     
     
-def cropCenterAxes(img,cropDims):
+def cropCenterAxes(img,*cropDims):
     '''
     Crop the center of the given array `img' to produce an array with dimensions `cropDims'. For each axis i in `img', 
     the result will have the dimension size given in cropDims[i]. If cropDims[i] is None or cropDims[i] is beyond the 
-    length of `cropDims', the original dimension size is retained. Eg. cropCenterAxes(np.zeros((10,20,20)),(None,15,30))
+    length of `cropDims', the original dimension size is retained. Eg. cropCenterAxes(np.zeros((10,20,20)),None,15,30)
     will return an array of dimensions (10,15,20).
     '''
     slices=[slice(None) for _ in range(img.ndim)]
@@ -382,22 +387,26 @@ class JupyterThreadMonitor(threading.Thread):
             
     def displayMonitor(self,delay=10.0,doOnce=False):
         self.fig=None
+        title='Train Values Step '
         
         while self.isRunning and self.is_alive() and not doOnce:
             with self.lock:
-                self.fig,ax=plotGraphImages('Train Values Step %i'%(self.step,),self.graphVals,self.imageVals,fig=self.fig)
+                self.fig,ax=plotGraphImages('%s%i'%(title,self.step,),self.graphVals,self.imageVals,fig=self.fig)
                 
             self._clear_output(wait=True)
             self._display(plt.gcf())
             time.sleep(delay)
             
         with self.lock:
-            self.fig,ax=plotGraphImages('Train Values Step %i (Stopped)'%(self.step,),self.graphVals,self.imageVals,fig=self.fig)
+            suffix='' if self.is_alive() else' (Stopped)'
+            self.fig,ax=plotGraphImages('%s%i%s'%(title,self.step,suffix),self.graphVals,self.imageVals,fig=self.fig)
+            
         self._display(plt.gcf())
         self._clear_output(wait=True)
         
     def status(self):
-        msg='Alive: %s, Step: %i, Values: %r'%(self.is_alive(),self.step,{k:v[-1] for k,v in self.graphVals.items()})
+        graphvals={k:v[-1] for k,v in self.graphVals.items()}
+        msg='Alive: %s, Step: %i, Values: %r'%(self.is_alive(),self.step,graphvals)
         return msg
             
     
