@@ -133,8 +133,11 @@ def _mapImageChannels(image,indices):
     return result.reshape(image.shape)
     
     
-def deformBothAugmentPIL(image,seg,defrange=25,numControls=3,margin=2):
+def deformBothAugmentPIL(image,seg,defrange=25,numControls=3,margin=2,prob=0.5):
     from PIL import Image
+    
+    if not randChoice(prob): # `prob' chance of using this augment
+        return image,seg
     
     h,w = image.shape[:2]
     
@@ -150,6 +153,27 @@ def deformBothAugmentPIL(image,seg,defrange=25,numControls=3,margin=2):
     imagedef=_mapImageChannels(image,indices)
     segdef=_mapImageChannels(seg,indices)
     return imagedef,segdef
+
+
+def deformImgAugmentPIL(image,out,defrange=25,numControls=3,margin=2,prob=0.5):
+    from PIL import Image
+    
+    if not randChoice(prob): # `prob' chance of using this augment
+        return image,out
+    
+    h,w = image.shape[:2]
+    
+    imshift=np.zeros((2,numControls+margin*2,numControls+margin*2))
+    imshift[:,margin:-margin,margin:-margin]=np.random.randint(-defrange,defrange,(2,numControls,numControls))
+
+    imshiftx=np.array(Image.fromarray(imshift[0]).resize((w,h),Image.QUAD))
+    imshifty=np.array(Image.fromarray(imshift[1]).resize((w,h),Image.QUAD))
+        
+    y,x=np.meshgrid(np.arange(w), np.arange(h))
+    indices=np.reshape(x+imshiftx, (-1, 1)),np.reshape(y+imshifty, (-1, 1))
+
+    imagedef=_mapImageChannels(image,indices)
+    return imagedef,out
 
 
 def _mapping(coords,interx,intery):
