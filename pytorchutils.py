@@ -55,10 +55,10 @@ class NetworkManager(object):
         self.savedir=None
         self.logfilename='train.log'
         
-        if isCuda:
+        if isCuda and self.net is not None:
             self.net=self.net.cuda()
             
-        if self.opt is None:
+        if self.opt is None and self.net is not None:
             self.opt=torch.optim.Adam(self.net.parameters(),lr=params.get('learningRate',1e-3))
 
         if savedirprefix is not None:
@@ -121,6 +121,21 @@ class NetworkManager(object):
     def save(self,path):
         '''Save the network to the given path.'''
         torch.save(self.net.state_dict(),path)
+        
+    def loadNet(self,path):
+        state=torch.load(path)
+        self.net=state.pop('__net__')
+        self.net.load_state_dict(state)
+        
+        if self.isCuda:
+            self.net=self.net.cuda()
+        else:
+            self.net=self.net.cpu()
+        
+    def saveNet(self,path):
+        state=dict(self.net.state_dict())
+        state['__net__']=self.net
+        torch.save(state,path)
         
     def convertArray(self,arr):
         '''Convert the Numpy array `arr' to a PyTorch Variable, converting to Cuda if necessary.'''
@@ -245,7 +260,7 @@ class NetworkManager(object):
             results list, if a single tensor this is converted then appended
             4. Clear the stored variables to free the graph
             
-        The result is a list of convert outputs, one for each batch. 
+        The result is a list of converted outputs, one for each batch. 
         '''
         assert all(i.shape[0]==inputs[0].shape[0] for i in inputs)
         inputlen=inputs[0].shape[0]

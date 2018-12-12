@@ -118,7 +118,16 @@ def rescaleArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
     return (norm*(maxv-minv))+minv # rescale by minv and maxv, which is the normalized array by default
 
 
+def rescaleInstanceArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
+    out=np.zeros_like(arr)
+    for i in range(arr.shape[0]):
+        out[0]=rescaleArray(arr[0],minv,maxv,dtype)
+        
+    return out
+
+
 def rescaleArrayIntMax(arr,dtype=np.uint16):
+    '''Rescale the array `arr' to be between the minimum and maximum values of the type `dtype'.'''
     info=np.iinfo(dtype)
     return rescaleArray(arr,info.min,info.max).astype(dtype)
 
@@ -311,10 +320,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     '''
     Plot graph data with images below in a pyplot figure. 
     '''
-    numimages=len(imagemap)
-    assert numimages>0
-    
-    gridshape=(4, numimages)
+    gridshape=(4, max(1,len(imagemap)))
     
     if fig is not None:
         fig.clf()

@@ -9,7 +9,11 @@ a binary segmentation, for anything more complex the requestSeg() function shoul
 from __future__ import division, print_function
 from eidolon import ImageSceneObject,processImageNp, trange, first, rescaleArray
 import io
-import urllib2
+
+try:
+    from urllib2 import Request,urlopen
+except:
+    from urllib.request import Request, urlopen
 
 try:
     from imageio import imwrite, imread
@@ -39,8 +43,8 @@ def requestSeg(inmat,outmat,url):
             imwrite(stream,img,format='png') # encode image as png
             stream.seek(0)
 
-            request = urllib2.Request(url+'?keepLargest=True',stream.read(),{'Content-Type':'image/png'})
-            req=urllib2.urlopen(request)
+            request = Request(url+'?keepLargest=True',stream.read(),{'Content-Type':'image/png'})
+            req=urlopen(request)
             
             if req.code==200: 
                 outmat[:,:,s,t]=imread(io.BytesIO(req.read()))>0
