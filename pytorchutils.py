@@ -109,37 +109,40 @@ class NetworkManager(object):
                 print(msg,file=o)
     
     def reload(self):
-        '''Reload the network by loading the most recent .pth file in the save directory if there is one.'''
+        '''Reload the network state by loading the most recent .pth file in the save directory if there is one.'''
         files=glob.glob(os.path.join(self.savedir,'*.pth'))
         if files:
             self.load(max(files,key=os.path.getctime))
     
     def load(self,path):
-        '''Load the network from the given path.'''
+        '''Load the network state from the given path.'''
         self.net.load_state_dict(torch.load(path))
     
     def save(self,path):
-        '''Save the network to the given path.'''
+        '''Save the network state to the given path.'''
         torch.save(self.net.state_dict(),path)
         
     def loadNet(self,path):
+        '''Load the network and its state from the given path, value "__net__" in the state dict should be network itself.'''
         state=torch.load(path)
         self.net=state.pop('__net__')
         self.net.load_state_dict(state)
         
+        # ensure the hardware state of the loaded network matches what's requested
         if self.isCuda:
             self.net=self.net.cuda()
         else:
             self.net=self.net.cpu()
         
     def saveNet(self,path):
+        '''Save the network and its state to the given path by adding the network as "__net__" to the state dict.'''
         state=dict(self.net.state_dict())
         state['__net__']=self.net
         torch.save(state,path)
         
     def convertArray(self,arr):
-        '''Convert the Numpy array `arr' to a PyTorch Variable, converting to Cuda if necessary.'''
-        arr=torch.autograd.Variable(torch.from_numpy(arr))
+        '''Convert the Numpy array `arr' to a PyTorch tensor, converting to Cuda if necessary.'''
+        arr=torch.from_numpy(arr)
         if self.isCuda:
             arr=arr.cuda()
             
