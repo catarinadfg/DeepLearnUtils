@@ -26,7 +26,7 @@ localurl=locals().get('url','http://bioeng187-pc:5000/infer/realtime')
 
 
 def requestSeg(inmat,outmat,url):
-    task=mgr.getCurrentTask()
+    task=getSceneMgr().getCurrentTask()
     task.setMaxProgress(m.shape[2]*m.shape[3])
     task.setLabel('Segmenting...')
     count=0
