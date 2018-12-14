@@ -7,7 +7,7 @@ load the returned segmentation image. This assumes the segmentation model accept
 a binary segmentation, for anything more complex the requestSeg() function should be changed.
 '''
 from __future__ import division, print_function
-from eidolon import ImageSceneObject,processImageNp, trange, first, rescaleArray
+from eidolon import ImageSceneObject,processImageNp, trange, first, rescaleArray, getSceneMgr
 import io
 
 try:
