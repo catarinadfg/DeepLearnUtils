@@ -50,17 +50,18 @@ def requestSeg(inmat,outmat,url):
                 outmat[:,:,s,t]=imread(io.BytesIO(req.read()))>0
     
 
-o=mgr.win.getSelectedObject() or first(mgr.objs)
-
-if o is None:
-    mgr.showMsg('Load and select an image object before executing this script')
-elif not isinstance(o,ImageSceneObject):
-    mgr.showMsg('Selected object %r is not an image'%o.getName())
-else:
-    oo=o.plugin.clone(o,o.getName()+'_Seg')
+if __name__=='builtins':
+    o=mgr.win.getSelectedObject() or first(mgr.objs)
     
-    with processImageNp(oo,True) as m:
-        requestSeg(m,m,localurl)
-                    
-    mgr.addSceneObject(oo)
+    if o is None:
+        mgr.showMsg('Load and select an image object before executing this script')
+    elif not isinstance(o,ImageSceneObject):
+        mgr.showMsg('Selected object %r is not an image'%o.getName())
+    else:
+        oo=o.plugin.clone(o,o.getName()+'_Seg')
+        
+        with processImageNp(oo,True) as m:
+            requestSeg(m,m,localurl)
+                        
+        mgr.addSceneObject(oo)
     
