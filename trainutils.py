@@ -132,24 +132,24 @@ def rescaleArrayIntMax(arr,dtype=np.uint16):
     return rescaleArray(arr,info.min,info.max).astype(dtype)
 
 
-def cropCenter(img,cropy,cropx,startAxis=0):
-    '''
-    Crop the center of the given array `img' along the dimensions `startAxis' and `startAxis'+1.
-    The result will have axis `startAxis' dimension `cropy' and axis `startAxis'+1 dimension `cropx'.
-    '''
-    y,x = img.shape[1:3]
-    starty = max(0,y//2-(cropy//2))
-    startx = max(0,x//2-(cropx//2))
+# def cropCenter(img,cropy,cropx,startAxis=0):
+#     '''
+#     Crop the center of the given array `img' along the dimensions `startAxis' and `startAxis'+1.
+#     The result will have axis `startAxis' dimension `cropy' and axis `startAxis'+1 dimension `cropx'.
+#     '''
+#     y,x = img.shape[1:3]
+#     starty = max(0,y//2-(cropy//2))
+#     startx = max(0,x//2-(cropx//2))
     
-    slices=[slice(None) for _ in range(img.ndim)]
-    slices[startAxis]=slice(starty,starty+cropy)
-    slices[startAxis+1]=slice(startx,startx+cropx)
+#     slices=[slice(None) for _ in range(img.ndim)]
+#     slices[startAxis]=slice(starty,starty+cropy)
+#     slices[startAxis+1]=slice(startx,startx+cropx)
     
-    return img[slices]
-    #return img[starty:starty+cropy,startx:startx+cropx]
+#     return img[slices]
+#     #return img[starty:starty+cropy,startx:startx+cropx]
     
     
-def cropCenterAxes(img,*cropDims):
+def cropCenter(img,*cropDims):
     '''
     Crop the center of the given array `img' to produce an array with dimensions `cropDims'. For each axis i in `img', 
     the result will have the dimension size given in cropDims[i]. If cropDims[i] is None or cropDims[i] is beyond the 
@@ -163,7 +163,35 @@ def cropCenterAxes(img,*cropDims):
             start = max(0,img.shape[i]//2-(cropdim//2)) # start of slice, 0 if img.shape[i]<cropdim 
             slices[i]=slice(start,start+cropdim)
     
-    return img[tuple(slices)]    
+    return img[tuple(slices)]
+
+
+def cropPosition(img,*cropPosDims,**kwargs):
+    posdims=[None]*img.ndim
+    for i in range(min(img.ndim,len(cropPosDims))):
+        posdims[i]=cropPosDims[i]
+        
+    slices=[slice(None) for _ in range(img.ndim)]
+    margin=kwargs.get('margin',0)
+    
+    # if selected, generate margins around the image 
+    if margin is not None:
+        marginadd=[c[0] if c else 0 for c in posdims]
+        midslices=tuple(slice(m//2,-(m//2+m%2) if m>0 else s) for s,m in zip(img.shape,marginadd))
+
+        mimg=np.zeros(tuple(s+m for s,m in zip(img.shape,marginadd)),dtype=img.dtype)
+        mimg[:]=margin
+        mimg[midslices]=img
+        img=mimg
+
+    for s,shape in enumerate(img.shape):
+        if posdims[s] is not None:
+            pos,dim=posdims[s]
+            start=max(0,pos-dim//2)
+            stop=min(shape,pos+dim//2+dim%2)
+            slices[s]=slice(start,stop)
+
+    return img[tuple(slices)]
 
 
 def flatten4DVolume(im):
