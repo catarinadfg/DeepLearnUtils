@@ -166,32 +166,47 @@ def cropCenter(img,*cropDims):
     return img[tuple(slices)]
 
 
-def cropPosition(img,*cropPosDims,**kwargs):
-    posdims=[None]*img.ndim
-    for i in range(min(img.ndim,len(cropPosDims))):
-        posdims[i]=cropPosDims[i]
-        
-    slices=[slice(None) for _ in range(img.ndim)]
-    margin=kwargs.get('margin',0)
+def copypasteArrays(src,dest,srccenter,destcenter,dims):
+    '''
+    Calculate the slices to copy a sliced area of array `src' into array `dest'. The area has dimensions `dims' (use 0 
+    or None to copy everything in that dimension), the source area is centered at `srccenter' index in `src' and copied 
+    into area centered at `destcenter' in `dest'. The dimensions of the copied area will be clipped to fit within the 
+    source and destination arrays so a smaller area may be copied than expected. The return value is the tuples of slice 
+    objects indexing the copied area in `src', and those indexing the copy area in `dest'.
     
-    # if selected, generate margins around the image 
-    if margin is not None:
-        marginadd=[c[0] if c else 0 for c in posdims]
-        midslices=tuple(slice(m//2,-(m//2+m%2) if m>0 else s) for s,m in zip(img.shape,marginadd))
-
-        mimg=np.zeros(tuple(s+m for s,m in zip(img.shape,marginadd)),dtype=img.dtype)
-        mimg[:]=margin
-        mimg[midslices]=img
-        img=mimg
-
-    for s,shape in enumerate(img.shape):
-        if posdims[s] is not None:
-            pos,dim=posdims[s]
-            start=max(0,pos-dim//2)
-            stop=min(shape,pos+dim//2+dim%2)
-            slices[s]=slice(start,stop)
-
-    return img[tuple(slices)]
+    Example:
+        src=np.random.randint(0,10,(6,6))
+        dest=np.zeros_like(src)
+        srcslices,destslices=copypasteArrays(src,dest,(3,2),(2,1),(3,4))
+        dest[destslices]=src[srcslices]
+        print(src)
+        print(dest)
+        
+        >>> [[9 5 6 6 9 6]
+             [4 3 5 6 1 2]
+             [0 7 3 2 4 1]
+             [3 0 0 1 5 1]
+             [9 4 7 1 8 2]
+             [6 6 5 8 6 7]]
+            [[0 0 0 0 0 0]
+             [7 3 2 4 0 0]
+             [0 0 1 5 0 0]
+             [4 7 1 8 0 0]
+             [0 0 0 0 0 0]
+             [0 0 0 0 0 0]]
+    '''
+    srcslices=[slice(None)]*src.ndim
+    destslices=[slice(None)]*dest.ndim
+    
+    for i,ss,ds,sc,dc,dim in zip(range(src.ndim),src.shape,dest.shape,srccenter,destcenter,dims):
+        if dim:
+            d1=np.clip(dim//2,0,min(sc,dc)) # dimension before midpoint, clip to size fitting in both arrays
+            d2=np.clip(dim//2+1,0,min(ss-sc,ds-dc)) # dimension after midpoint, clip to size fitting in both arrays
+            
+            srcslices[i]=slice(sc-d1,sc+d2)
+            destslices[i]=slice(dc-d1,dc+d2)
+        
+    return tuple(srcslices), tuple(destslices)
 
 
 def flatten4DVolume(im):
