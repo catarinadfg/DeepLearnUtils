@@ -53,6 +53,7 @@ class NetworkManager(object):
         self.isRunning=True
         
         self.savedir=None
+        self.saveprefix='net'
         self.logfilename='train.log'
         
         if isCuda and self.net is not None:
@@ -108,9 +109,9 @@ class NetworkManager(object):
             with open(os.path.join(self.savedir,self.logfilename),'a') as o:
                 print(msg,file=o)
     
-    def reload(self):
+    def reload(self,prefix=None):
         '''Reload the network state by loading the most recent .pth file in the save directory if there is one.'''
-        files=glob.glob(os.path.join(self.savedir,'*.pth'))
+        files=glob.glob(os.path.join(self.savedir,(self.saveprefix if prefix is None else prefix)+'*.pth'))
         if files:
             self.load(max(files,key=os.path.getctime))
     
@@ -142,6 +143,9 @@ class NetworkManager(object):
         
     def convertArray(self,arr):
         '''Convert the Numpy array `arr' to a PyTorch tensor, converting to Cuda if necessary.'''
+        if isinstance(arr,torch.Tensor):
+            return arr
+        
         arr=torch.from_numpy(arr)
         if self.isCuda:
             arr=arr.cuda()
@@ -197,7 +201,7 @@ class NetworkManager(object):
                 self.params['loss']=lossval
             
                 if self.savedir and (s==steps or not self.isRunning or (savesteps>0 and (s%(steps//savesteps))==0)):
-                    self.save(os.path.join(self.savedir,'net_%.6i.pth'%s))
+                    self.save(os.path.join(self.savedir,self.saveprefix+'_%.6i.pth'%s))
                     self.saveStep(s,lossval)
                     
                 if not self.isRunning:
