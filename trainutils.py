@@ -153,7 +153,7 @@ def cropCenter(img,*cropDims):
     '''
     Crop the center of the given array `img' to produce an array with dimensions `cropDims'. For each axis i in `img', 
     the result will have the dimension size given in cropDims[i]. If cropDims[i] is None or cropDims[i] is beyond the 
-    length of `cropDims', the original dimension size is retained. Eg. cropCenterAxes(np.zeros((10,20,20)),None,15,30)
+    length of `cropDims', the original dimension size is retained. Eg. cropCenter(np.zeros((10,20,20)),None,15,30)
     will return an array of dimensions (10,15,20).
     '''
     slices=[slice(None) for _ in range(img.ndim)]

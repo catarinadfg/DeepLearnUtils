@@ -144,18 +144,25 @@ class DataSource(object):
         '''
         Initialize the source with either data arrays or a data generation function. If `dataGen' is None then `inArrays'
         and `outArrays' must be provided and be numpy arrays or tuples thereof, createDataGenerator() is used to create
-        the generator function with these as input. The `augments' list is the list of augment callables which batches
-        are passed through before being returned. Each such callable is expected to take as input two numpy arrays (or
-        tuples thereof) each containing a single instance of a data value (eg. a single image). All arrays in `inArrays'
-        and `outArrays' are expected to be in BH[W][D]C ordering, that is batch is first dimensino and channels last.
+        the generator function with these as input. If `selectProbs' is given this is the normalized probabilities vector
+        defining the likelihood an entry from `inArrays' and `outArrays' is selected when making a randomized batch.
+        
+        The `augments' list is the list of augment callables which batches are passed through before being returned. 
+        Each such callable is expected to take as input two numpy arrays (or tuples thereof) each containing a single 
+        instance of a data value (eg. a single image). All arrays in `inArrays' and `outArrays' are expected to be in 
+        B[H][W][D]C ordering, that is batch is first dimension and channels last.
         
         If `dataGen' is provided it must be a callable accepting 3 arguments (batchSize, selectProbs, chosenInds):
           -If batchSize is given the callable should return a pair of numpy arrays (or tuples thereof) with batchSize 
-           number of entries. If selectProbs is given (which would be the `selectProbs' argument for this method) this 
-           should be the selecting probability for each value in the source arrays from which random selections are taken. 
+           number of entries or greater. If `selectProbs' is given this is the selecting probability for each value 
+           in the source arrays from which random selections are taken. 
         
           -If chosenInds is provided then these indices from the source arrays are returned instead rather than batchSize 
            number of random selections; in this case batchSize and selectProbs are ignored.
+           
+        This generator callable is expected to return a pair of numpy arrays or tuples thereof. The `inArrays' and 
+        `outArrays' arguments are not used if `dataGen' is provided but the `selectProbs' argument of this constructor 
+        is passsed as the `selectProbs' argument whenever the generator is called.
         '''
         self.dataGen=dataGen or createDataGenerator(inArrays,outArrays)
         self.selectProbs=selectProbs
@@ -296,4 +303,15 @@ class DataSource(object):
                 pass
         
         
+def randomDataSource(shape,dtype=np.float32):
+    '''Returns a generator producing batches of `shape' sized standard normal random arrays of type `dtype'.'''
+    def randData(batchSize=None,selectProbs=None,chosenInds=None):
+        if chosenInds:
+            batchSize=len(chosenInds)
+
+        randvals=np.random.randn(batchSize, *shape).astype(dtype)
+        return randvals,randvals
+    
+    return DataSource(dataGen=randData)
+
         

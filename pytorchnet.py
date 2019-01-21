@@ -35,7 +35,7 @@ def samePadding(kernelsize):
     Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
     shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
     '''
-    if isinstance(kernelsize,tuple):
+    if isinstance(kernelsize,(list,tuple)):
         return tuple((k-1)//2 for k in kernelsize)
     else:
         return (kernelsize-1)//2
@@ -85,7 +85,7 @@ class KLDivLoss(_Loss):
         
         
 class Convolution2D(nn.Module):
-    def __init__(self,inChannels,outChannels,strides=1,kernelsize=3,instanceNorm=True,dropout=0):
+    def __init__(self,inChannels,outChannels,strides=1,kernelsize=3,instanceNorm=True,dropout=0,bias=True):
         super(Convolution2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
@@ -93,11 +93,33 @@ class Convolution2D(nn.Module):
         normalizeFunc=nn.InstanceNorm2d if instanceNorm else nn.BatchNorm2d
         
         self.conv=nn.Sequential(
-            nn.Conv2d(inChannels,outChannels,kernel_size=kernelsize,stride=strides,padding=padding),
+            nn.Conv2d(inChannels,outChannels,kernelsize,strides,padding,bias=bias),
             normalizeFunc(outChannels),
             nn.Dropout2d(dropout),
             nn.modules.PReLU()
         )
+        
+    def forward(self,x):
+        return self.conv(x)
+    
+    
+class ConvTranspose2D(nn.Module):
+    def __init__(self,inChannels,outChannels,strides=1,kernelsize=3,instanceNorm=True,dropout=0,bias=True,convOnly=False):
+        super(ConvTranspose2D,self).__init__()
+        self.inChannels=inChannels
+        self.outChannels=outChannels
+        normalizeFunc=nn.InstanceNorm2d if instanceNorm else nn.BatchNorm2d
+        
+        conv=[nn.ConvTranspose2d(inChannels,outChannels,kernelsize,strides,1,strides-1,bias=bias)]
+        
+        if not convOnly:
+            conv.append(normalizeFunc(outChannels))
+            if dropout>0:
+                conv.append(nn.Dropout2d(dropout))
+                
+            conv.append(nn.modules.PReLU())
+            
+        self.conv=nn.Sequential(*conv)
         
     def forward(self,x):
         return self.conv(x)
@@ -217,7 +239,65 @@ class ResidualClassifier(nn.Module):
         x=x.view(b,-1)
         x=self.linear(x)
         return (x,)
+    
+
+class ResidualDiscriminator(ResidualClassifier):
+    def __init__(self,inShape,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0):
+        ResidualClassifier.__init__(self,inShape,1,channels,strides,kernelsize,numSubunits,instanceNorm,dropout)
         
+    def forward(self,x):
+        result=ResidualClassifier.forward(self,x)
+        result=torch.sigmoid(result[0])
+        return (result,)
+        
+    
+class Classifier(nn.Module):
+    def __init__(self,inShape,classes,channels,strides,kernelsize=3,instanceNorm=True,dropout=0,bias=True):
+        super(Classifier,self).__init__()
+        assert len(channels)==len(strides)
+        self.inHeight,self.inWidth,self.inChannels=inShape
+        self.channels=channels
+        self.strides=strides
+        self.classes=classes
+        self.kernelsize=kernelsize
+        self.instanceNorm=instanceNorm
+        self.dropout=dropout
+        self.bias=bias
+        
+        modules=[]
+        self.linear=None
+        echannel=self.inChannels
+        
+        self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
+        
+        # encode stage
+        for i,(c,s) in enumerate(zip(self.channels,self.strides)):
+            modules.append(('layer_%i'%i,Convolution2D(echannel,c,s,self.kernelsize,instanceNorm,dropout,bias)))
+            
+            echannel=c # use the output channel number as the input for the next loop
+            self.finalSize=self.finalSize//s
+
+        self.linear=nn.Linear(int(np.product(self.finalSize))*echannel,self.classes)
+        
+        self.classifier=nn.Sequential(OrderedDict(modules))
+        
+    def forward(self,x):
+        b=x.size(0)
+        x=self.classifier(x)
+        x=x.view(b,-1)
+        x=self.linear(x)
+        return (x,)
+    
+    
+class Discriminator(Classifier):
+    def __init__(self,inShape,channels,strides,kernelsize=3,instanceNorm=True,dropout=0,bias=True):
+        Classifier.__init__(self,inShape,1,channels,strides,kernelsize,instanceNorm,dropout,bias)
+        
+    def forward(self,x):
+        result=Classifier.forward(self,x)
+        result=torch.sigmoid(result[0])
+        return (result,)
+    
 
 class BranchClassifier(nn.Module):
     def __init__(self,inShape,classes,channels,strides,branches=[(3,)],instanceNorm=True,dropout=0):
@@ -287,6 +367,40 @@ class AutoEncoder2D(nn.Module):
         self.conv=nn.Sequential(OrderedDict(self.modules))
         
     def forward(self,x):
+        return (self.conv(x),)
+    
+   
+class Generator2D(nn.Module):
+    def __init__(self,latentShape,startShape,channels,strides,kernelsize=3,numSubunits=2,instanceNorm=True,dropout=0,bias=True):
+        super(Generator2D,self).__init__()
+        assert len(channels)==len(strides)
+        self.inHeight,self.inWidth,self.inChannels=tuple(startShape) # HWC
+        
+        self.latentShape=latentShape
+        self.channels=channels
+        self.strides=strides
+        self.kernelsize=kernelsize
+        self.numSubunits=numSubunits
+        self.instanceNorm=instanceNorm
+        
+        self.modules=[]
+        echannel=self.inChannels
+        
+        # transform image of shape `startShape' into output shape through transposed convolutions and residual units
+        for i,(c,s) in enumerate(zip(channels,strides)):
+            self.modules+=[
+                    ('invconv_%i'%i,ConvTranspose2D(echannel,c,s,kernelsize,instanceNorm,dropout,bias,i<len(channels)-1))
+                #('up_%i'%i,nn.ConvTranspose2d(echannel,echannel,self.kernelsize,s,1,s-1,bias=bias)),
+                #('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelsize,self.numSubunits,instanceNorm,dropout))
+            ]
+            echannel=c
+
+        self.linear=nn.Linear(np.prod(self.latentShape),int(np.prod(startShape)))
+        self.conv=nn.Sequential(OrderedDict(self.modules))
+        
+    def forward(self,x):
+        b=x.shape[0]
+        x=self.linear(x.view(b,-1)).reshape((b,self.inChannels,self.inHeight,self.inWidth))
         return (self.conv(x),)
     
     
