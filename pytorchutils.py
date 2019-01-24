@@ -60,7 +60,9 @@ class NetworkManager(object):
             self.net=self.net.cuda()
             
         if self.opt is None and self.net is not None:
-            self.opt=torch.optim.Adam(self.net.parameters(),lr=params.get('learningRate',1e-3))
+            lr=params.get('learningRate',1e-3)
+            betas=params.get('betas',(0.9, 0.999))
+            self.opt=torch.optim.Adam(self.net.parameters(),lr=lr,betas=betas)
 
         if savedirprefix is not None:
             if os.path.exists(savedirprefix):
@@ -155,6 +157,15 @@ class NetworkManager(object):
     def toNumpy(self,arr):
         '''Convert the PyTorch Tensor `arr' to a Numpy array.'''
         return arr.cpu().data.numpy()
+    
+    def trainStep(self,numSubsteps=1):
+        for sub in range(numSubsteps):
+            self.netoutputs=self.netForward()
+            self.lossoutput=self.lossForward()
+            
+            self.opt.zero_grad()
+            self.lossoutput.backward()
+            self.opt.step()
 
     def train(self,inputfunc,steps,substeps=1,savesteps=5):
         '''
@@ -162,7 +173,7 @@ class NetworkManager(object):
         intervals. The callable `inputfunc' is expected to take no arguments and return a tuple pf batch Numpy arrays of 
         shape, B, BC, BCHW or BCDHW. A train step is composed of these steps:
             1. `inputfunc' is called, each returned value is converted to a tensor, then assigned to self.traininputs
-            2. For `substeps' number of times:
+            2. trainStep() is called which is exped to do the following for `substeps' number of times:
               a. self.netForward() is called and results assigned to self.netoutputs
               b. self.lossForward() is called and results assigned to self.lossoutput
               c. The optimizer performs one training step
@@ -186,14 +197,7 @@ class NetworkManager(object):
                 self.log('Timestep',s,'/',steps)
                 
                 self.traininputs=[self.convertArray(arr) for arr in inputfunc()] 
-                
-                for sub in range(substeps):
-                    self.netoutputs=self.netForward()
-                    self.lossoutput=self.lossForward()
-                    
-                    self.opt.zero_grad()
-                    self.lossoutput.backward()
-                    self.opt.step()
+                self.trainStep(substeps)
             
                 lossval=self.lossoutput.item()
                 self.log('Loss:',lossval)

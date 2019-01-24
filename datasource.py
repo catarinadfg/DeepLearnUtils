@@ -303,15 +303,18 @@ class DataSource(object):
                 pass
         
         
-def randomDataSource(shape,dtype=np.float32):
-    '''Returns a generator producing batches of `shape' sized standard normal random arrays of type `dtype'.'''
+def randomDataSource(shape,augments=[],dtype=np.float32):
+    '''
+    Returns a DataSource producing batches of `shape'-sized standard normal random arrays of type `dtype'. The `augments'
+    list of augmentations is pass to the DataSource object when constructed. The input and output are the same array.
+    '''
     def randData(batchSize=None,selectProbs=None,chosenInds=None):
-        if chosenInds:
+        if chosenInds: # there are no arrays to index from so use the list size as batchSize instead
             batchSize=len(chosenInds)
 
         randvals=np.random.randn(batchSize, *shape).astype(dtype)
         return randvals,randvals
     
-    return DataSource(dataGen=randData)
+    return DataSource(dataGen=randData,augments=augments)
 
         

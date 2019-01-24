@@ -5,7 +5,7 @@
 from __future__ import division, print_function
 import subprocess, re, time, platform, threading
 from collections import OrderedDict
-
+import inspect
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -15,6 +15,25 @@ isWindows=platform.system().lower()=='windows'
 gpunames=re.compile('\|\s+\d+\s+([a-zA-Z][^\|]+) O[nf][f ]')
 gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
 gpuload=re.compile('MiB\s*\|\s*(\d+)\%')
+
+
+def applyArgMap(func,*posargs,**argmap):
+    '''
+    Call `func' with positional arguments `posargs' and subsequent arguments replaced by named entries in `argmap'. This
+    will pull out of `argmap' only those values keyed to the same name as an argument in `func', additional keys in 
+    `argmap' are ignored. If `func' has variable positional arguments this can only be set by `posargs', keyword args
+    cannot be set at all.
+    '''
+    args=inspect.getfullargspec(func).args
+    
+    if args[0]=='self': # if func is a constructor or method remove the self argument 
+        args=args[1:]
+        
+    args=args[len(posargs):] # don't replace given positional arguments
+    
+    kwargs={k:v for k,v in argmap.items() if k in args}
+    
+    return func(*posargs,**kwargs)
 
 
 def oneHot(labels,numClasses):
@@ -236,6 +255,10 @@ def stackImages(images,cropy,cropx,dtype=np.float32):
 
 
 def tileStack(stack,cols,rows):
+    '''
+    Returns a new array with subarrays taken from `stack' in the first dimension tiled in the last two dimensions. This
+    requires that `stack' have dimensions B[C][D]HW, ie. the first dimension is per-image and the last are height/width.
+    '''
     b=stack.shape[0]
     stack=stack[:b-b%cols]
     rows=min(rows,stack.shape[0]//cols)
