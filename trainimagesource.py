@@ -6,7 +6,6 @@
 from __future__ import division, print_function
 import random
 import threading
-import multiprocessing
 
 import numpy as np
 from scipy.ndimage import shift,zoom,rotate, geometric_transform, map_coordinates

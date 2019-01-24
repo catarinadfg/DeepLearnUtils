@@ -14,70 +14,6 @@ except:
 import numpy as np
 
 
-def createDataGenerator(inArrays,outArrays):
-    if isinstance(inArrays,tuple):
-        inFunc=lambda i:tuple(a[i] for a in inArrays)
-        
-        inShape=inArrays[0].shape
-        assert all(a.shape==inShape for a in inArrays)
-    else:
-        inFunc=lambda i:inArrays[i]
-        inShape=inArrays.shape
-        
-    if isinstance(outArrays,tuple):
-        outFunc=lambda i:tuple(a[i] for a in outArrays)
-        
-        outShape=outArrays[0].shape
-        assert all(a.shape==outShape for a in outArrays)
-    else:
-        outFunc=lambda i:outArrays[i]
-        outShape=outArrays.shape
-        
-    assert inShape[0]==outShape[0]
-    
-    def getData(batchSize=None,selectProbs=None,chosenInds=None):
-        if chosenInds is None:
-            chosenInds=np.random.choice(inShape[0],batchSize,p=selectProbs)
-        
-        return inFunc(chosenInds),outFunc(chosenInds)
-    
-    return getData
-
-
-def createZeroArraySet(arrays,addShape):
-    if isinstance(arrays,tuple):
-        return tuple(np.zeros(addShape+a.shape,a.dtype) for a in arrays)
-    else:
-        return np.zeros(addShape+arrays.shape,arrays.dtype)
-    
-
-def getArraySet(arrays,indices):
-    return tuple(a[indices] for a in arrays) if isinstance(arrays,tuple) else arrays[indices]
-
-
-def writeArraySet(arrays,writes,index):
-    if isinstance(arrays,tuple):
-        for a,w in zip(arrays,writes):
-            a[index]=w
-    else:
-        arrays[index]=writes
-        
-
-def copyArraySet(arrays):
-    if isinstance(arrays,tuple):
-        return tuple(a.copy() for a in arrays)
-    else:
-        return arrays.copy()
-        
-        
-def fillArraySet(arrays,writes):
-    if isinstance(arrays,tuple):
-        for a,w in zip(arrays,writes):
-            a[:]=w
-    else:
-        arrays[:]=writes
-        
-        
 def toShared(arrays):
     '''Convert the given Numpy array to a shared ctypes object.'''
     if isinstance(arrays,tuple):
@@ -98,76 +34,45 @@ def fromShared(arrays):
         return tuple(np.ctypeslib.as_array(arr) for arr in arrays)
     else:
         return np.ctypeslib.as_array(arrays)
-
         
-def initProc(inArrays_,outArrays_,inAugs_,outAugs_,augments_):
+        
+def initProc(inArrays_,augs_,augments_):
     global inArrays
-    global outArrays
-    global inAugs
-    global outAugs
+    global augs
     global augments
-    
     inArrays=fromShared(inArrays_)
-    outArrays=fromShared(outArrays_)
-    inAugs=fromShared(inAugs_)
-    outAugs=fromShared(outAugs_)
-    
+    augs=fromShared(augs_)
     augments=augments_
     
     
 def applyAugmentsProc(indices):
     global inArrays
-    global outArrays
-    global inAugs
-    global outAugs
+    global augs
     global augments
     
     for i in indices:
-        ina=getArraySet(inArrays,i)
-        outa=getArraySet(outArrays,i)
+        inarrs=[a[i] for a in inArrays]
         
         for aug in augments:
-            ina,outa=aug(ina,outa)
+            inarrs=aug(*inarrs)
+            
+        for ina,outa in zip(inarrs,augs):
+            outa[i]=ina
         
-        writeArraySet(inAugs,ina,i)
-        writeArraySet(outAugs,outa,i)
-        
-    
+
 class DataSource(object):
-    '''
-    Class for generating data batches from array data. It takes as input arrays of input and output data (of tuples of
-    arrays) or a data generation function. Whenever a batch is requested these are used to create a batch of images which
-    have been aplied to a list of augmentation functions to modify the data. Two context manager methods are provided for
-    generating these batches in separate threads or separate processes. 
-    '''
-    def __init__(self,inArrays=None,outArrays=None,dataGen=None,selectProbs=None,augments=[]):
-        '''
-        Initialize the source with either data arrays or a data generation function. If `dataGen' is None then `inArrays'
-        and `outArrays' must be provided and be numpy arrays or tuples thereof, createDataGenerator() is used to create
-        the generator function with these as input. If `selectProbs' is given this is the normalized probabilities vector
-        defining the likelihood an entry from `inArrays' and `outArrays' is selected when making a randomized batch.
-        
-        The `augments' list is the list of augment callables which batches are passed through before being returned. 
-        Each such callable is expected to take as input two numpy arrays (or tuples thereof) each containing a single 
-        instance of a data value (eg. a single image). All arrays in `inArrays' and `outArrays' are expected to be in 
-        B[H][W][D]C ordering, that is batch is first dimension and channels last.
-        
-        If `dataGen' is provided it must be a callable accepting 3 arguments (batchSize, selectProbs, chosenInds):
-          -If batchSize is given the callable should return a pair of numpy arrays (or tuples thereof) with batchSize 
-           number of entries or greater. If `selectProbs' is given this is the selecting probability for each value 
-           in the source arrays from which random selections are taken. 
-        
-          -If chosenInds is provided then these indices from the source arrays are returned instead rather than batchSize 
-           number of random selections; in this case batchSize and selectProbs are ignored.
-           
-        This generator callable is expected to return a pair of numpy arrays or tuples thereof. The `inArrays' and 
-        `outArrays' arguments are not used if `dataGen' is provided but the `selectProbs' argument of this constructor 
-        is passsed as the `selectProbs' argument whenever the generator is called.
-        '''
-        self.dataGen=dataGen or createDataGenerator(inArrays,outArrays)
+    def __init__(self,*arrays,dataGen=None,selectProbs=None,augments=[]):
+        self.arrays=arrays
+        self.dataGen=dataGen or self.defaultDataGen
         self.selectProbs=selectProbs
         self.augments=augments
         
+    def defaultDataGen(self,batchSize=None,selectProbs=None,chosenInds=None):
+        if chosenInds is None:
+            chosenInds=np.random.choice(self.arrays[0].shape[0],batchSize,p=selectProbs)
+                
+        return tuple(a[chosenInds] for a in self.arrays)
+                
     def getRandomBatch(self,batchSize):
         '''Call the generator callable with the given `batchSize' value with self.selectProb as the second argument.'''
         return self.dataGen(batchSize,self.selectProbs)
@@ -176,24 +81,23 @@ class DataSource(object):
         '''Call the generator callable with `chosenInds' as the chosen indices to select values from.'''
         return self.dataGen(chosenInds=chosenInds)
     
-    def getAugmentedArrays(self,inArrays,outArrays):
-        '''Apply the augmentations to single-instance input and output arrays.'''
+    def getAugmentedArrays(self,arrays):
+        '''Apply the augmentations to single-instance arrays.'''
         for aug in self.augments:
-            inArrays,outArrays=aug(inArrays,outArrays)
+            arrays=aug(*arrays)
             
-        return inArrays,outArrays
+        return arrays
     
-    def applyAugments(self,inArrays,outArrays,inAugArrays,outAugArrays,indices=None):
+    def applyAugments(self,arrays,augArrays,indices=None):
         '''Apply the augmentations to batch input and output arrays at `indices' or for the whole arrays if not given.'''
-        if indices is None:
-            arr=inArrays[0] if isinstance(inArrays,tuple) else inArrays # assumes all arrays are the same length
-            indices=range(arr.shape[0])
+        indices=range(arrays[0].shape[0]) if indices is None else indices
             
         for i in indices:
-            ina,outa=self.getAugmentedArrays(getArraySet(inArrays,i),getArraySet(outArrays,i))
-            writeArraySet(inAugArrays,ina,i)
-            writeArraySet(outAugArrays,outa,i)
-    
+            inarrs=[a[i] for a in arrays]
+            outarrs=self.getAugmentedArrays(inarrs)
+            for out,aug in zip(outarrs,augArrays):
+                aug[i]=out
+                
     @contextmanager
     def threadBatchGen(self,batchSize,numThreads=None):
         '''Yields a callable object which produces `batchSize' batches generated in `numThreads' threads.'''
@@ -202,26 +106,25 @@ class DataSource(object):
         isRunning=True
         batchQueue=queue.Queue(1)
         
-        inArrays,outArrays=self.getIndexBatch([0])
-        inAugTest,outAugTest=self.getAugmentedArrays(getArraySet(inArrays,0),getArraySet(outArrays,0))
+        inArrays=self.getIndexBatch([0])
+        augTest=self.getAugmentedArrays([a[0] for a in inArrays])
         
-        inAugs=createZeroArraySet(inAugTest,(batchSize,))
-        outAugs=createZeroArraySet(outAugTest,(batchSize,))
+        augs=tuple(np.zeros((batchSize,)+a.shape,a.dtype) for a in augTest)
         
         def _batchThread():
             while isRunning:
                 threads=[]
-                inArrays,outArrays=self.getRandomBatch(batchSize)
+                batch=self.getRandomBatch(batchSize)
                 
                 for indices in threadIndices:
-                    t=threading.Thread(target=self.applyAugments,args=(inArrays,outArrays,inAugs,outAugs,indices))
+                    t=threading.Thread(target=self.applyAugments,args=(batch,augs,indices))
                     t.start()
                     threads.append(t)
                     
                 for t in threads:
                     t.join()
                     
-                batchQueue.put((copyArraySet(inAugs),copyArraySet(outAugs)))
+                batchQueue.put(tuple(a.copy() for a in augs))
                 
         batchThread=threading.Thread(target=_batchThread)
         batchThread.start()
@@ -245,40 +148,33 @@ class DataSource(object):
         isRunning=True
         batchQueue=mp.Queue(1)
         
-        inArrays,outArrays=self.getRandomBatch(batchSize)
-        inAugTest,outAugTest=self.getAugmentedArrays(getArraySet(inArrays,0),getArraySet(outArrays,0))
+        inArrays=self.getRandomBatch(batchSize)
+        augTest=self.getAugmentedArrays([a[0] for a in inArrays])
         
-        inAugs=createZeroArraySet(inAugTest,(batchSize,))
-        outAugs=createZeroArraySet(outAugTest,(batchSize,))
+        augs=tuple(toShared(np.zeros((batchSize,)+a.shape,a.dtype)) for a in augTest)
         
-        # convert original and augmented arrays to shared arrays
-        inArrays=toShared(inArrays)
-        outArrays=toShared(outArrays)
-        inAugs=toShared(inAugs)
-        outAugs=toShared(outAugs)
+        inArrays=tuple(map(toShared,inArrays))
         
         maugs=self.augments
-        initargs=(inArrays,outArrays,inAugs,outAugs,maugs)
+        initargs=(inArrays,augs,maugs)
                
-        def _batchThread(inArrays,outArrays,inAugs,outAugs,maugs):
+        def _batchThread(inArrays,augs,maugs):
             try:
-                initargs=(inArrays,outArrays,inAugs,outAugs,maugs)
+                initargs=(inArrays,augs,maugs)
                 
                 with mp.Pool(numProcs,initializer=initProc,initargs=initargs) as p:
-                    inArrays=fromShared(inArrays)
-                    outArrays=fromShared(outArrays)
-                    inAugs=fromShared(inAugs)
-                    outAugs=fromShared(outAugs)
+                    inArrays=tuple(map(fromShared,inArrays))
+                    augs=tuple(map(fromShared,augs))
                         
                     while isRunning:
-                        inArraysb,outArraysb=self.getRandomBatch(batchSize)
-                        fillArraySet(inArrays,inArraysb)
-                        fillArraySet(outArrays,outArraysb)
-                        
+                        batch=self.getRandomBatch(batchSize)
+                        for a,b in zip(inArrays,batch):
+                            a[...]=b
+                            
                         if maugs:
                             p.map(applyAugmentsProc,procIndices)
 
-                        batchQueue.put((copyArraySet(inAugs),copyArraySet(outAugs)))
+                        batchQueue.put(tuple(a.copy() for a in augs))
                         
             except Exception as e:
                 batchQueue.put(e)
@@ -317,4 +213,15 @@ def randomDataSource(shape,augments=[],dtype=np.float32):
     
     return DataSource(dataGen=randData,augments=augments)
 
+        
+if __name__=='__main__':
+    def testAug(im,cat):
+        return im[0],cat
+
+    src=DataSource(np.random.randn(10,1,16,16),np.random.randn(10,2),augments=[testAug])
+    
+    with src.processBatchGen(4) as gen:
+        batch=gen()
+        
+        print([a.shape for a in batch])
         
