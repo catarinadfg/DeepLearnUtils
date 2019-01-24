@@ -37,6 +37,7 @@ def fromShared(arrays):
         
         
 def initProc(inArrays_,augs_,augments_):
+    '''Initialize subprocesses by setting global variables.'''
     global inArrays
     global augs
     global augments
@@ -46,6 +47,7 @@ def initProc(inArrays_,augs_,augments_):
     
     
 def applyAugmentsProc(indices):
+    '''Apply the augmentations to the input array at the given indices.'''
     global inArrays
     global augs
     global augments
@@ -62,7 +64,7 @@ def applyAugmentsProc(indices):
 
 class DataSource(object):
     def __init__(self,*arrays,dataGen=None,selectProbs=None,augments=[]):
-        self.arrays=arrays
+        self.arrays=list(arrays)
         self.dataGen=dataGen or self.defaultDataGen
         self.selectProbs=selectProbs
         self.augments=augments
@@ -214,6 +216,24 @@ def randomDataSource(shape,augments=[],dtype=np.float32):
     return DataSource(dataGen=randData,augments=augments)
 
         
+class BufferDataSource(DataSource):
+    def appendBuffer(self,*arrays):
+        if not self.arrays:
+            self.arrays=list(arrays)
+        else:
+            for i in range(len(self.arrays)):
+                self.arrays[i]=np.concatenate([self.arrays[i],arrays[i]])
+                
+        if self.selectProbs is not None:
+            self.selectProbs=np.ones((self.arrays[0].shape[0],))
+            
+    def clearBuffer(self):
+        self.arrays=[]
+        
+        if self.selectProbs is not None:
+            self.selectProbs=self.selectProbs[:0]
+        
+
 if __name__=='__main__':
     def testAug(im,cat):
         return im[0],cat
@@ -223,5 +243,19 @@ if __name__=='__main__':
     with src.processBatchGen(4) as gen:
         batch=gen()
         
+        print([a.shape for a in batch])
+        
+    bsrc=BufferDataSource()#np.random.randn(0,1,16,16),np.random.randn(0,2))
+    
+    bsrc.appendBuffer(np.random.randn(10,1,16,16),np.random.randn(10,2))
+    
+    with bsrc.processBatchGen(4) as gen:
+        batch=gen()
+        print([a.shape for a in batch])
+    
+    bsrc.clearBuffer()
+        
+    with bsrc.processBatchGen(4) as gen:
+        batch=gen()
         print([a.shape for a in batch])
         
