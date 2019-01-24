@@ -232,6 +232,9 @@ class BufferDataSource(DataSource):
         
         if self.selectProbs is not None:
             self.selectProbs=self.selectProbs[:0]
+            
+    def bufferSize(self):
+        return 0 if not self.arrays else self.arrays[0].shape[0]
         
 
 if __name__=='__main__':
