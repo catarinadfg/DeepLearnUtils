@@ -410,6 +410,7 @@ class DiscriminatorMgr(NetworkManager):
     
     def train(self,realinputfunc,geninputfunc,steps,substeps=1,savesteps=5):
         for s in range(1,steps+1):
+            self.step=s
             self.opt.zero_grad()
 
             # train with real images
