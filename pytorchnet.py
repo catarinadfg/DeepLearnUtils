@@ -240,9 +240,9 @@ class UpsampleConcat2D(nn.Module):
         return torch.cat([x,y],1)
 
 
-class ResidualClassifier(nn.Module):
+class Classifier(nn.Module):
     def __init__(self,inShape,classes,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0,bias=True):
-        super(ResidualClassifier,self).__init__()
+        super(Classifier,self).__init__()
         assert len(channels)==len(strides)
         self.inHeight,self.inWidth,self.inChannels=inShape
         self.channels=channels
@@ -262,8 +262,12 @@ class ResidualClassifier(nn.Module):
         
         # encode stage
         for i,(c,s) in enumerate(zip(self.channels,self.strides)):
-            modules.append(('layer_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelSize,self.numSubunits,instanceNorm,dropout)))
+            if numSubunits==0:
+                layer=Convolution2D(echannel,c,s,kernelSize,instanceNorm,dropout,bias,i==len(channels)-1)
+            else:
+                layer=ResidualUnit2D(echannel,c,s,self.kernelSize,self.numSubunits,instanceNorm,dropout)
             
+            modules.append(('layer_%i'%i,layer))
             echannel=c # use the output channel number as the input for the next loop
             self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
 
@@ -279,62 +283,14 @@ class ResidualClassifier(nn.Module):
         return (x,)
     
 
-class ResidualDiscriminator(ResidualClassifier):
+class Discriminator(Classifier):
     def __init__(self,inShape,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0,bias=True):
-        ResidualClassifier.__init__(self,inShape,1,channels,strides,kernelSize,numSubunits,instanceNorm,dropout,bias)
+        Classifier.__init__(self,inShape,1,channels,strides,kernelSize,numSubunits,instanceNorm,dropout,bias)
         
     def forward(self,x):
-        result=ResidualClassifier.forward(self,x)
+        result=Classifier.forward(self,x)
         result=torch.sigmoid(result[0])
         return (result,)
-        
-    
-class Classifier(nn.Module):
-    def __init__(self,inShape,classes,channels,strides,kernelSize=3,instanceNorm=True,dropout=0,bias=True):
-        super(Classifier,self).__init__()
-        assert len(channels)==len(strides)
-        self.inHeight,self.inWidth,self.inChannels=inShape
-        self.channels=channels
-        self.strides=strides
-        self.classes=classes
-        self.kernelSize=kernelSize
-        self.instanceNorm=instanceNorm
-        self.dropout=dropout
-        self.bias=bias
-        
-        modules=[]
-        self.linear=None
-        echannel=self.inChannels
-        
-        self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
-        
-        # encode stage
-        for i,(c,s) in enumerate(zip(channels,strides)):
-            modules.append(('layer_%i'%i,Convolution2D(echannel,c,s,kernelSize,instanceNorm,dropout,bias,i==len(channels)-1)))
-            
-            echannel=c # use the output channel number as the input for the next loop
-            self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
-
-        self.linear=nn.Linear(int(np.product(self.finalSize))*echannel,self.classes)
-        
-        self.classifier=nn.Sequential(OrderedDict(modules))
-        
-    def forward(self,x):
-        b=x.size(0)
-        x=self.classifier(x)
-        x=x.view(b,-1)
-        x=self.linear(x)
-        return (x,)
-    
-    
-class Discriminator(Classifier):
-    def __init__(self,inShape,channels,strides,kernelSize=3,instanceNorm=True,dropout=0,bias=True):
-        Classifier.__init__(self,inShape,1,channels,strides,kernelSize,instanceNorm,dropout,bias)
-        
-    def forward(self,x):
-        x=Classifier.forward(self,x)
-        x=torch.sigmoid(x[0])
-        return (x,)
     
 
 class BranchClassifier(nn.Module):
