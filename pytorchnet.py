@@ -73,18 +73,20 @@ class DiceLoss(_Loss):
     def forward(self, source, target, smooth=1e-5):
         '''
         Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
-        `target' (B1HW). Axis 1 of `source' is expected to have logit predictions for each class rather than being the
-        image channels, while the channels of `target' should be 1. If the N channel of `source' is 1 a binary dice loss
-        will be calculated.
+        `target' (B1HW). Axis N of `source' is expected to have logit predictions for each class rather than being the
+        image channels, while the same axis of `target' should be 1. If the N channel of `source' is 1 a binary dice loss
+        will be calculated. The `smooth' parameter is a value added to the intersection and union components of the 
+        inter-over-union calculation to smooth results and prevent divide-by-0, this value should be small.
         '''
         assert target.shape[1]==1,'Target shape is '+str(target.shape)
         
         batchsize = target.size(0)
         
-        if source.shape[1]==1:
+        if source.shape[1]==1: # binary dice loss, use sigmoid activation
             probs=source.float().sigmoid()
             tsum=target
         else:
+            # multiclass dice loss, use softmax and convert target to one-hot encoding
             probs=F.softmax(source)
             tsum=oneHot(target,source.shape[1]) # BCHW -> BCHWN
             tsum=tsum[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
@@ -101,14 +103,16 @@ class DiceLoss(_Loss):
         
 
 class KLDivLoss(_Loss):
-    def __init__(self,reconLoss=torch.nn.BCELoss(reduction='sum')):
+    def __init__(self,reconLoss=torch.nn.BCELoss(reduction='sum'),beta=1.0):
         _Loss.__init__(self)
         self.reconLoss=reconLoss
+        self.beta=beta
         
     def forward(self,reconx, x, mu, logvar):
         assert x.min() >= 0. and x.max() <= 1.,'%f -> %f'%(x.min(), x.max() )
         assert reconx.min() >= 0. and reconx.max() <= 1.,'%f -> %f'%(reconx.min(), reconx.max() )
-        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # KL divergence loss
+        
+        KLD = -0.5 * self.beta * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # KL divergence loss with beta term
         return KLD+self.reconLoss(reconx,x)
         
         
@@ -261,7 +265,7 @@ class ResidualClassifier(nn.Module):
             modules.append(('layer_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelSize,self.numSubunits,instanceNorm,dropout)))
             
             echannel=c # use the output channel number as the input for the next loop
-            self.finalSize=self.finalSize//s
+            self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
 
         self.linear=nn.Linear(int(np.product(self.finalSize))*echannel,self.classes)
         
@@ -369,6 +373,39 @@ class BranchClassifier(nn.Module):
         x=self.linear(x)
         return (x,)
     
+   
+class Generator(nn.Module):
+    def __init__(self,latentShape,startShape,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0,bias=True):
+        super(Generator,self).__init__()
+        assert len(channels)==len(strides)
+        self.inHeight,self.inWidth,self.inChannels=tuple(startShape) # HWC
+        
+        self.latentShape=latentShape
+        self.channels=channels
+        self.strides=strides
+        self.kernelSize=kernelSize
+        self.numSubunits=numSubunits
+        self.instanceNorm=instanceNorm
+        
+        echannel=self.inChannels
+        self.linear=nn.Linear(np.prod(self.latentShape),int(np.prod(startShape)))
+        self.conv=nn.Sequential()
+        
+        # transform image of shape `startShape' into output shape through transposed convolutions and residual units
+        for i,(c,s) in enumerate(zip(channels,strides)):
+            isLast=i==len(channels)-1
+            
+            self.conv.add_module('invconv_%i'%i,ConvTranspose2D(echannel,c,s,kernelSize,instanceNorm,dropout,bias,isLast or numSubunits>0))
+            if numSubunits>0:
+                self.conv.add_module('decode_%i'%i,ResidualUnit2D(c,c,1,kernelSize,numSubunits,instanceNorm,dropout,bias,isLast))
+                
+            echannel=c
+        
+    def forward(self,x):
+        b=x.shape[0]
+        x=self.linear(x.view(b,-1)).reshape((b,self.inChannels,self.inHeight,self.inWidth))
+        return (self.conv(x),)
+    
 
 class AutoEncoder(nn.Module):
     def __init__(self,inChannels,outChannels,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0):
@@ -401,39 +438,6 @@ class AutoEncoder(nn.Module):
         self.conv=nn.Sequential(OrderedDict(self.modules))
         
     def forward(self,x):
-        return (self.conv(x),)
-    
-   
-class Generator(nn.Module):
-    def __init__(self,latentShape,startShape,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0,bias=True):
-        super(Generator,self).__init__()
-        assert len(channels)==len(strides)
-        self.inHeight,self.inWidth,self.inChannels=tuple(startShape) # HWC
-        
-        self.latentShape=latentShape
-        self.channels=channels
-        self.strides=strides
-        self.kernelSize=kernelSize
-        self.numSubunits=numSubunits
-        self.instanceNorm=instanceNorm
-        
-        echannel=self.inChannels
-        self.linear=nn.Linear(np.prod(self.latentShape),int(np.prod(startShape)))
-        self.conv=nn.Sequential()
-        
-        # transform image of shape `startShape' into output shape through transposed convolutions and residual units
-        for i,(c,s) in enumerate(zip(channels,strides)):
-            isLast=i==len(channels)-1
-            
-            self.conv.add_module('invconv_%i'%i,ConvTranspose2D(echannel,c,s,kernelSize,instanceNorm,dropout,bias,isLast or numSubunits>0))
-            if numSubunits>0:
-                self.conv.add_module('decode_%i'%i,ResidualUnit2D(c,c,1,kernelSize,numSubunits,instanceNorm,dropout,bias,isLast))
-                
-            echannel=c
-        
-    def forward(self,x):
-        b=x.shape[0]
-        x=self.linear(x.view(b,-1)).reshape((b,self.inChannels,self.inHeight,self.inWidth))
         return (self.conv(x),)
     
     
