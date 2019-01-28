@@ -213,7 +213,7 @@ class NetworkManager(object):
                 self.params['loss']=lossval
             
                 if self.savedir and (s==steps or not self.isRunning or (savesteps>0 and (s%(steps//savesteps))==0)):
-                    self.save(os.path.join(self.savedir,self.saveprefix+'_%.6i.pth'%s))
+                    self.save(os.path.join(self.savedir,'%s_%.6i.pth'%(self.saveprefix,s)))
                     self.saveStep(s,lossval)
                     
                 if not self.isRunning:
