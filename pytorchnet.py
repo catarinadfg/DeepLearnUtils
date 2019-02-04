@@ -18,11 +18,7 @@ def oneHot(labels,numClasses):
     '''
     onehotshape=tuple(labels.shape)+(numClasses,)
     labels=labels%numClasses
-    y = torch.eye(numClasses)
-    
-    if labels.is_cuda:
-        y=y.cuda()
-        
+    y = torch.eye(numClasses,device=labels.device)
     onehot=y[labels.view(-1).long()]
     
     return onehot.reshape(*onehotshape) 
@@ -67,6 +63,13 @@ def normalInit(m,std=0.02,normalFunc=torch.nn.init.normal_):
     elif cname.find('BatchNorm') != -1:
         normalFunc(m.weight.data, 1.0, std)
         torch.nn.init.constant_(m.bias.data, 0)
+        
+        
+def addNormalNoise(m,mean=0,std=1e-5):
+    '''Returns `m' added with a normal noise field with given mean and standard deviation values.'''
+    noise=torch.zeros_like(m,device=m.device)
+    noise.data.normal_(mean,std)
+    return m+noise
         
 
 class DiceLoss(_Loss):
@@ -116,7 +119,7 @@ class KLDivLoss(_Loss):
         return KLD+self.reconLoss(reconx,x)
         
         
-class Convolution2D(nn.Module):
+class Convolution2D(nn.Sequential):
     def __init__(self,inChannels,outChannels,strides=1,kernelSize=3,instanceNorm=True,dropout=0,bias=True,convOnly=False):
         super(Convolution2D,self).__init__()
         self.inChannels=inChannels
@@ -124,41 +127,31 @@ class Convolution2D(nn.Module):
         padding=samePadding(kernelSize)
         normalizeFunc=nn.InstanceNorm2d if instanceNorm else nn.BatchNorm2d
         
-        conv=[nn.Conv2d(inChannels,outChannels,kernelSize,strides,padding,bias=bias)]
+        self.add_module('conv',nn.Conv2d(inChannels,outChannels,kernelSize,strides,padding,bias=bias))
         
         if not convOnly:
-            conv.append(normalizeFunc(outChannels))
+            self.add_module('norm',normalizeFunc(outChannels))
             if dropout>0:
-                conv.append(nn.Dropout2d(dropout))
+                self.add_module('dropout',nn.Dropout2d(dropout))
                 
-            conv.append(nn.modules.PReLU())
-            
-        self.conv=nn.Sequential(*conv)
-        
-    def forward(self,x):
-        return self.conv(x)
+            self.add_module('prelu',nn.modules.PReLU())
     
     
-class ConvTranspose2D(nn.Module):
+class ConvTranspose2D(nn.Sequential):
     def __init__(self,inChannels,outChannels,strides=1,kernelSize=3,instanceNorm=True,dropout=0,bias=True,convOnly=False):
         super(ConvTranspose2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
         normalizeFunc=nn.InstanceNorm2d if instanceNorm else nn.BatchNorm2d
         
-        conv=[nn.ConvTranspose2d(inChannels,outChannels,kernelSize,strides,1,strides-1,bias=bias)]
+        self.add_module('conv',nn.ConvTranspose2d(inChannels,outChannels,kernelSize,strides,1,strides-1,bias=bias))
         
         if not convOnly:
-            conv.append(normalizeFunc(outChannels))
+            self.add_module('norm',normalizeFunc(outChannels))
             if dropout>0:
-                conv.append(nn.Dropout2d(dropout))
+                self.add_module('dropout',nn.Dropout2d(dropout))
                 
-            conv.append(nn.modules.PReLU())
-            
-        self.conv=nn.Sequential(*conv)
-        
-    def forward(self,x):
-        return self.conv(x)
+            self.add_module('prelu',nn.modules.PReLU())
         
 
 class ResidualUnit2D(nn.Module):
@@ -166,20 +159,18 @@ class ResidualUnit2D(nn.Module):
         super(ResidualUnit2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
+        self.conv=nn.Sequential()
         
         padding=samePadding(kernelSize)
-        seq=[]
         schannels=inChannels
         sstrides=strides
         
         for su in range(subunits):
             convOnly=lastConvOnly and su==(subunits-1)
-            seq.append(Convolution2D(schannels,outChannels,sstrides,kernelSize,instanceNorm,dropout,bias,convOnly))
+            self.conv.add_module('unit%i'%su,Convolution2D(schannels,outChannels,sstrides,kernelSize,instanceNorm,dropout,bias,convOnly))
             schannels=outChannels # after first loop set the channels and strides to what they should be for subsequent units
             sstrides=1
             
-        self.conv=nn.Sequential(*seq) # apply this sequence of operations to the input
-        
         # apply this convolution to the input to change the number of output channels and output size to match that coming from self.conv
         self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=kernelSize,stride=strides,padding=padding,bias=bias)
         
@@ -253,8 +244,8 @@ class Classifier(nn.Module):
         self.instanceNorm=instanceNorm
         self.dropout=dropout
         self.bias=bias
+        self.classifier=nn.Sequential()
         
-        modules=[]
         self.linear=None
         echannel=self.inChannels
         
@@ -267,13 +258,11 @@ class Classifier(nn.Module):
             else:
                 layer=ResidualUnit2D(echannel,c,s,self.kernelSize,self.numSubunits,instanceNorm,dropout)
             
-            modules.append(('layer_%i'%i,layer))
             echannel=c # use the output channel number as the input for the next loop
+            self.classifier.add_module('layer_%i'%i,layer)
             self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
 
         self.linear=nn.Linear(int(np.product(self.finalSize))*echannel,self.classes)
-        
-        self.classifier=nn.Sequential(OrderedDict(modules))
         
     def forward(self,x):
         b=x.size(0)
@@ -284,13 +273,17 @@ class Classifier(nn.Module):
     
 
 class Discriminator(Classifier):
-    def __init__(self,inShape,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0,bias=True):
+    def __init__(self,inShape,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0,bias=True,lastAct=torch.sigmoid):
         Classifier.__init__(self,inShape,1,channels,strides,kernelSize,numSubunits,instanceNorm,dropout,bias)
+        self.lastAct=lastAct
         
     def forward(self,x):
         result=Classifier.forward(self,x)
-        result=torch.sigmoid(result[0])
-        return (result,)
+        
+        if self.lastAct is not None:
+            result=(self.lastAct(result[0]),)
+            
+        return result
     
 
 class BranchClassifier(nn.Module):
@@ -364,7 +357,7 @@ class Generator(nn.Module):
     
 
 class AutoEncoder(nn.Module):
-    def __init__(self,inChannels,outChannels,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0):
+    def __init__(self,inChannels,outChannels,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0,numResUnits=0):
         super(AutoEncoder,self).__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
@@ -374,21 +367,38 @@ class AutoEncoder(nn.Module):
         self.kernelSize=kernelSize
         self.numSubunits=numSubunits
         self.instanceNorm=instanceNorm
+        self.dropout=dropout
+        self.numResUnits=numResUnits
         
         self.modules=[]
         echannel=inChannels
         
         # encoding stage
         for i,(c,s) in enumerate(zip(channels,strides)):
-            self.modules.append(('encode_%i'%i,ResidualUnit2D(echannel,c,s,self.kernelSize,self.numSubunits,instanceNorm,dropout)))
+            if numSubunits>0:
+                unit=ResidualUnit2D(echannel,c,s,kernelSize,self.numSubunits,instanceNorm,dropout)
+            else:
+                unit=Convolution2D(echannel,c,s,kernelSize,instanceNorm,dropout)
+            
+            self.modules.append(('encode_%i'%i,unit))
             echannel=c
+            
+        # intermediate residual units on the bottom path
+        for i in range(numResUnits):
+            self.modules.append(('res_%i'%i,ResidualUnit2D(echannel,echannel,1,kernelSize,1,instanceNorm,dropout)))
             
         # decoding stage
         for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[outChannels],strides[::-1])):
-            self.modules+=[
-                ('up_%i'%i,nn.ConvTranspose2d(echannel,echannel,self.kernelSize,s,1,s-1)),
-                ('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelSize,self.numSubunits,instanceNorm,dropout))
-            ]
+            isLast= i==(len(strides)-1)
+            
+            if numSubunits>0:
+                self.modules+=[
+                    ('up_%i'%i,nn.ConvTranspose2d(echannel,echannel,self.kernelSize,s,1,s-1)),
+                    ('decode_%i'%i,ResidualUnit2D(echannel,c,1,self.kernelSize,self.numSubunits,instanceNorm,dropout,isLast))
+                ]
+            else:
+                self.modules.append(('decode_%i'%i,ConvTranspose2D(echannel,c,s,kernelSize,instanceNorm,dropout,True,isLast)))
+                
             echannel=c
 
         self.conv=nn.Sequential(OrderedDict(self.modules))
@@ -499,7 +509,7 @@ class BaseUnet(nn.Module):
             self.decodes.append((up,x))
             
     def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
-        pass
+        return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)
     
     def _getLayer(self,inChannels,outChannels,strides,isEncode):
         pass
@@ -536,11 +546,9 @@ class Unet(BaseUnet):
          self.dropout=dropout
          super(Unet,self).__init__(inChannels,numClasses,channels,strides,3)
 
-    def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
-        return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)    
-     
     def _getLayer(self,inChannels,outChannels,strides,isEncode):
-        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,self.numSubunits if isEncode else 1,self.instanceNorm,self.dropout)
+        numSubunits=self.numSubunits if isEncode else 1
+        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,numSubunits,self.instanceNorm,self.dropout)
     
 
 class BranchUnet(BaseUnet):
@@ -549,9 +557,6 @@ class BranchUnet(BaseUnet):
          self.instanceNorm=instanceNorm
          self.dropout=dropout
          super(BranchUnet,self).__init__(inChannels,numClasses,channels,strides,3)
-
-    def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
-        return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)
          
     def _getLayer(self,inChannels,outChannels,strides,isEncode):
         return ResidualBranchUnit2D(inChannels,outChannels,strides,self.branches,self.instanceNorm,self.dropout)

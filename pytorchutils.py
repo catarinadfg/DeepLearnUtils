@@ -115,9 +115,10 @@ class NetworkManager(object):
     
     def reload(self,prefix=None):
         '''Reload the network state by loading the most recent .pth file in the save directory if there is one.'''
-        files=glob.glob(os.path.join(self.savedir,(self.saveprefix if prefix is None else prefix)+'*.pth'))
-        if files:
-            self.load(max(files,key=os.path.getctime))
+        if self.savedir:
+            files=glob.glob(os.path.join(self.savedir,(self.saveprefix if prefix is None else prefix)+'*.pth'))
+            if files:
+                self.load(max(files,key=os.path.getctime))
     
     def load(self,path):
         '''Load the network state from the given path.'''
@@ -160,7 +161,7 @@ class NetworkManager(object):
         '''Convert the PyTorch Tensor `arr' to a Numpy array.'''
         return arr.cpu().data.numpy()
     
-    def trainStep(self,numSubsteps=1):
+    def trainStep(self,numSubsteps):
         '''
         Implements the basic training sequence for `numSubsteps' number of times. Each sequence is composed of running
         the network forward, running the loss function forward, zeroing optimizer gradients, feeding the loss result
@@ -200,9 +201,9 @@ class NetworkManager(object):
             self.log('Savedir:',self.savedir)
             self.isRunning=True
             
-            for s in range(self.step+1,steps+1):
+            for s in range(1,steps+1):
                 self.log('Timestep',s,'/',steps)
-                self.step=s
+                self.step+=1
                 
                 self.traininputs=[self.convertArray(arr) for arr in inputfunc()] 
                 self.trainStep(substeps)
@@ -212,8 +213,8 @@ class NetworkManager(object):
                 self.updateStep(s,lossval)
                 self.params['loss']=lossval
             
-                if self.savedir and (s==steps or not self.isRunning or (savesteps>0 and (s%(steps//savesteps))==0)):
-                    self.save(os.path.join(self.savedir,'%s_%.6i.pth'%(self.saveprefix,s)))
+                if self.savedir and savesteps>0 and (not self.isRunning or s==steps or (s%(steps//savesteps))==0):
+                    self.save(os.path.join(self.savedir,'%s_%.6i.pth'%(self.saveprefix,self.step)))
                     self.saveStep(s,lossval)
                     
                 if not self.isRunning:
@@ -384,11 +385,18 @@ class DiscriminatorMgr(NetworkManager):
     realLabel=1
     genLabel=0
     
-    def __init__(self,net,realDataSrc,savedirprefix=None,loss=None,**params):
+    def __init__(self,net,realDataSrc,savedirprefix=None,loss=None,stepOptimizer=True,separateBackward=True,**params):
         '''
-         - realDataSrc: DataSource returning real training images as first value in Pytorch BCHW order, 
-                        second value is B1 array filled with realLabel.
+        Initialize the manager. Arguments:
+         - net: discriminator network
+         - realDataSrc: DataSource returning real training images as first value in Pytorch BC[D]HW order, second value 
+           is B1 array filled with realLabel.
+         - savedirprefix: prefix for saving to a directory, this may overwrite other networks if used with a generator
+           so set self.saveprefix to something other than the default
+         - loss: loss function, if this isn't provided the default is BCELoss
         '''
+        self.stepOptimizer=stepOptimizer
+        self.separateBackward=separateBackward
         self.generatedBuffer=None
         self.realDataSrc=realDataSrc
         self.genDataSrc=datasource.BufferDataSource()
@@ -408,26 +416,41 @@ class DiscriminatorMgr(NetworkManager):
         preds=self.netoutputs[0]
         return self.loss(preds,values)
     
-    def train(self,realinputfunc,geninputfunc,steps,substeps=1,savesteps=5):
-        for s in range(1,steps+1):
-            self.step=s
-            self.opt.zero_grad()
-
+    def trainStep(self,numSubsteps):
+        realinputs=self.traininputs # already filled by train()
+        geninputs=[self.convertArray(arr) for arr in self.geninputfunc()] 
+        
+        for s in range(numSubsteps):
+            if self.stepOptimizer:
+                self.opt.zero_grad()
+    
             # train with real images
-            self.traininputs=[self.convertArray(arr) for arr in realinputfunc()]
+            self.traininputs=realinputs 
             self.netoutputs=self.netForward()
             self.realloss=self.lossForward()
-            self.realloss.backward()
-
+            
+            if self.separateBackward:
+                self.realloss.backward()
+    
             # train with generated images
-            self.traininputs=[self.convertArray(arr) for arr in geninputfunc()] 
+            self.traininputs=geninputs
             self.netoutputs=self.netForward()
             self.genloss=self.lossForward()
-            self.genloss.backward()
-
+            
+            if self.separateBackward:
+                self.genloss.backward()
+    
             self.lossoutput=self.realloss+self.genloss
-
-            self.opt.step()
+    
+            if not self.separateBackward:
+                self.lossoutput.backward()
+    
+            if self.stepOptimizer:
+                self.opt.step()
+    
+    def train(self,realinputfunc,geninputfunc,steps,substeps=1,savesteps=5):
+        self.geninputfunc=geninputfunc
+        NetworkManager.train(self,realinputfunc,steps,substeps,savesteps)
     
     def trainDiscriminator(self,batchSize,steps,substeps=1,savesteps=5,numThreads=None,clearBuffer=True):
         if self.genDataSrc.bufferSize()>0:
@@ -443,7 +466,7 @@ class DiscriminatorMgr(NetworkManager):
         Add images in BCHW order to the buffer of generated images to use for training the discriminator. These are 
         assumed to be generated by the network being discriminated. Data is copied to `output' can be kept by caller.
         '''
-        self.genDataSrc.appendBuffer(output,np.ones((output.shape[0],1),np.float32)*self.genLabel)
+        self.genDataSrc.appendBuffer(output,np.full((output.shape[0],1),self.genLabel,np.float32))
                 
     def __call__(self,testinput):
         '''Calculate the discriminator loss on images `testinput'.'''

@@ -17,21 +17,22 @@ gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
 gpuload=re.compile('MiB\s*\|\s*(\d+)\%')
 
 
-def applyArgMap(func,*posargs,**argmap):
+def applyArgMap(func,*posargs,**kwargs):
     '''
-    Call `func' with positional arguments `posargs' and subsequent arguments replaced by named entries in `argmap'. This
-    will pull out of `argmap' only those values keyed to the same name as an argument in `func', additional keys in 
-    `argmap' are ignored. If `func' has variable positional arguments this can only be set by `posargs', keyword args
-    cannot be set at all.
+    Call `func' with positional arguments `posargs' and subsequent arguments replaced by named entries in `kwargs'. This
+    will pull out of `kwargs' only those values keyed to the same name as an argument in `func', additional keys in 
+    `argmap' are ignored if `func' does not have a ** parameter. If `func' has variable positional arguments this can 
+    only be set by `posargs'.
     '''
-    args=inspect.getfullargspec(func).args
+    argspec=inspect.getfullargspec(func)
     
-    if args[0]=='self': # if func is a constructor or method remove the self argument 
-        args=args[1:]
-        
-    args=args[len(posargs):] # don't replace given positional arguments
-    
-    kwargs={k:v for k,v in argmap.items() if k in args}
+    if argspec.varkw is None:
+        args=argspec.args
+        if args[0]=='self': # if func is a constructor or method remove the self argument 
+            args=args[1:]
+
+        args=args[len(posargs):] # don't replace given positional arguments
+        kwargs={k:v for k,v in kwargs.items() if k in args}
     
     return func(*posargs,**kwargs)
 

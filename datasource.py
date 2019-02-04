@@ -237,6 +237,38 @@ class BufferDataSource(DataSource):
     def bufferSize(self):
         return 0 if not self.arrays else self.arrays[0].shape[0]
         
+        
+class MergeDataSource(DataSource):
+    def __init__(self,src1,src2,numThreads=None,augments=[]):
+        self.src1=src1
+        self.src2=src2
+        self.batchSize=0
+        self.gen=None
+        self.numThreads=numThreads
+        
+        DataSource.__init__(self,dataGen=self._dataGen,augments=augments)
+        
+    def _setBatchSize(self,batchSize):
+        def yieldData():
+            with self.src1.threadBatchGen(self.batchSize,self.numThreads) as gen1: 
+                with self.src2.threadBatchGen(self.batchSize,self.numThreads) as gen2:
+                    while True:
+                        d1=gen1()
+                        d2=gen2()
+                        yield d1+d2
+                            
+        if self.batchSize!=batchSize:
+            self.batchSize=batchSize
+            self.gen=yieldData()
+        
+    def _dataGen(self,batchSize=None,selectProbs=None,chosenInds=None):
+        if batchSize is None:
+            batchSize=len(chosenInds)
+            
+        self._setBatchSize(batchSize)
+        
+        return next(self.gen) 
+        
 
 if __name__=='__main__':
     def testAug(im,cat):
@@ -262,4 +294,3 @@ if __name__=='__main__':
     with bsrc.processBatchGen(4) as gen:
         batch=gen()
         print([a.shape for a in batch])
-        
