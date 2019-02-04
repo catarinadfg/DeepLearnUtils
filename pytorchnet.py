@@ -471,7 +471,7 @@ class VarAutoEncoder(nn.Module):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
         return self.decode(z), mu, logvar, z
-        
+    
     
 class BaseUnet(nn.Module):
     def __init__(self,inChannels,numClasses,channels,strides,upsamplekernelSize=3):
@@ -512,7 +512,7 @@ class BaseUnet(nn.Module):
         return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)
     
     def _getLayer(self,inChannels,outChannels,strides,isEncode):
-        pass
+        return nn.Conv2d(inChannels,outChannels,3,strides)
         
     def forward(self,x):
         elist=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
@@ -560,4 +560,75 @@ class BranchUnet(BaseUnet):
          
     def _getLayer(self,inChannels,outChannels,strides,isEncode):
         return ResidualBranchUnit2D(inChannels,outChannels,strides,self.branches,self.instanceNorm,self.dropout)
+
+
+        
     
+#class UnetBlock(nn.Sequential):
+#    def __init__(self,encode,decode,submodule):
+#        super(UnetBlock,self).__init__()
+#        self.isBottom=submodule is None
+#        self.add_module('encode',encode)
+#        
+#        if submodule is not None:
+#            self.add_module('sub',submodule)
+#            
+#        self.add_module('decode',decode)
+#        
+#    def forward(self,x):
+#        xx=super().forward(x)
+#        print( x.shape,xx.shape,self.isBottom)
+#        
+#        if self.isBottom:
+#            return xx
+#        else:
+#            return torch.cat([x,xx],1)
+#        
+#class BaseUnet1(nn.Module):
+#    def __init__(self,inChannels,numClasses,channels,strides,upKernelSize=3):
+#        super(BaseUnet1,self).__init__()
+#        assert len(channels)==len(strides)
+#        self.inChannels=inChannels
+#        self.numClasses=numClasses
+#        self.channels=channels
+#        self.strides=strides
+#        self.upKernelSize=upKernelSize
+#        self.model=None
+#        
+#        def _createBlock(inc,outc,channels,strides):
+#            if len(channels)==0:
+#                return None
+#            
+#            c=channels[0]
+#            s=strides[0]
+#            down=self._getDownLayer(inc,c,s)
+#            up=self._getUpLayer(c*2,outc,s)
+#            
+#            return UnetBlock(down,up,_createBlock(c,c,channels[1:],strides[1:]))
+#        
+#        self.model=_createBlock(inChannels,numClasses,self.channels,self.strides)
+#            
+#    def forward(self,x):
+#        x= self.model(x)
+#        
+#        # generate prediction outputs, x has shape BCHW
+#        if self.numClasses==1:
+#            preds=(x[:,0]>=0).type(torch.IntTensor)
+#        else:
+#            preds=x.max(1)[1] # take the index of the max value along dimension 1
+#
+#        return x, preds
+#    
+#    def _getDownLayer(self,inChannels,outChannels,strides):
+#        padding=samePadding(3)
+#        return nn.Conv2d(inChannels,outChannels,3,strides,padding) 
+#    
+#    def _getUpLayer(self,inChannels,outChannels,strides):
+#        padding=strides-1
+#        return nn.ConvTranspose2d(inChannels,outChannels,self.upKernelSize,strides,1,padding)
+        
+    
+#if __name__=='__main__':
+#    unet=BaseUnet1(1,3,[5,10,12],[2,2,2])
+#    print(unet)
+#    print(unet(torch.zeros((2,1,16,16)))[0].shape)    
