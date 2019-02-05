@@ -364,7 +364,7 @@ class TrainImageSource(DataSource):
     augmentations applied to either the image or both data elements.
     '''
     def __init__(self,images,outputs,augments=[],numthreads=None):
-        DataSource.__init__(self,images,outputs,augments=augments,selectProbs=np.ones((images.shape[0],),np.float32))
+        DataSource.__init__(self,images,outputs,augments=augments,selectProbs=np.ones((images.shape[0],),np.float32)/images.shape[0])
         self.batchthread=None
         self.batchqueue=None
         
