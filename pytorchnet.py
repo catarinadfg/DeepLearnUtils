@@ -585,7 +585,7 @@ class UnetBlock(nn.Sequential):
         
         
 class Unet(nn.Module):
-    def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,upKernelSize=3):
+    def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,upKernelSize=3,instanceNorm=True,dropout=0):
         super().__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
@@ -594,6 +594,8 @@ class Unet(nn.Module):
         self.strides=strides
         self.kernelSize=kernelSize
         self.upKernelSize=upKernelSize
+        self.instanceNorm=instanceNorm
+        self.dropout=dropout
         self.model=None
         
         def _createBlock(inc,outc,channels,strides,isTop):
@@ -612,10 +614,10 @@ class Unet(nn.Module):
         self.model=_createBlock(inChannels,numClasses,self.channels,self.strides,True)
     
     def _getDownLayer(self,inChannels,outChannels,strides,isTop):
-        return Convolution2D(inChannels,outChannels,strides,self.kernelSize)
+        return Convolution2D(inChannels,outChannels,strides,self.kernelSize,self.instanceNorm,self.dropout)
     
     def _getUpLayer(self,inChannels,outChannels,strides,isTop):
-        return ConvTranspose2D(inChannels,outChannels,strides,self.upKernelSize)
+        return ConvTranspose2D(inChannels,outChannels,strides,self.upKernelSize,self.instanceNorm,self.dropout,convOnly=isTop)
             
     def forward(self,x):
         x= self.model(x)
@@ -632,9 +634,7 @@ class Unet(nn.Module):
 class ResidualUnet(Unet):
     def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,upKernelSize=3,numSubunits=2,instanceNorm=True,dropout=0):
         self.numSubunits=numSubunits
-        self.instanceNorm=instanceNorm
-        self.dropout=dropout
-        super().__init__(inChannels,numClasses,channels,strides,kernelSize,upKernelSize)
+        super().__init__(inChannels,numClasses,channels,strides,kernelSize,upKernelSize,instanceNorm,dropout)
     
     def _getDownLayer(self,inChannels,outChannels,strides,isTop):
         return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,self.numSubunits,self.instanceNorm,self.dropout)
