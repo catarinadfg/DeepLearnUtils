@@ -118,6 +118,17 @@ class KLDivLoss(_Loss):
         KLD = -0.5 * self.beta * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # KL divergence loss with beta term
         return KLD+self.reconLoss(reconx,x)
         
+    
+class ThresholdMask(torch.nn.Module):
+    def __init__(self,thresholdValue=0):
+        super().__init__()
+        self.threshold=nn.Threshold(thresholdValue,0)
+        self.eps=1e-10
+        
+    def forward(self,logits):
+        t=self.threshold(logits)
+        return (t/(t+self.eps))/(1-self.eps)
+    
         
 class Convolution2D(nn.Sequential):
     def __init__(self,inChannels,outChannels,strides=1,kernelSize=3,instanceNorm=True,dropout=0,bias=True,convOnly=False):
@@ -428,7 +439,6 @@ class VarAutoEncoder(nn.Module):
         # encoding stage
         for i,(c,s) in enumerate(zip(channels,strides)):
             self.encodeModules['encode_%i'%i]=ResidualUnit2D(echannel,c,s,kernelSize,numSubunits,instanceNorm,dropout)
-            #self.encodeModules['encode_%i'%i]=Convolution2D(echannel,c,s,kernelSize,instanceNorm,dropout)
             echannel=c
             self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
             
@@ -443,7 +453,6 @@ class VarAutoEncoder(nn.Module):
         for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[self.inChannels],strides[::-1])):
             self.decodeModules['up_%i'%i]=nn.ConvTranspose2d(echannel,echannel,kernelSize,s,1,s-1)
             self.decodeModules['decode_%i'%i]=ResidualUnit2D(echannel,c,1,kernelSize,numSubunits,instanceNorm,dropout)
-            #self.decodeModules['decode_%i'%i]=Convolution2D(echannel,c,1,kernelSize,instanceNorm,dropout)
             echannel=c
 
         self.decodes=nn.Sequential(self.decodeModules)
@@ -471,97 +480,6 @@ class VarAutoEncoder(nn.Module):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
         return self.decode(z), mu, logvar, z
-    
-    
-#class BaseUnet(nn.Module):
-#    def __init__(self,inChannels,numClasses,channels,strides,upsamplekernelSize=3):
-#        super(BaseUnet,self).__init__()
-#        assert len(channels)==len(strides)
-#        self.inChannels=inChannels
-#        self.numClasses=numClasses
-#        self.channels=channels
-#        self.strides=strides
-#        self.upsamplekernelSize=upsamplekernelSize
-#        
-#        dchannels=[self.numClasses]+list(self.channels[:-1])
-#
-#        self.encodes=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
-#        self.decodes=[]
-#        echannel=inChannels
-#        
-#        # encode stage
-#        for c,s,dc in zip(self.channels,self.strides,dchannels):
-#            ex=self._getLayer(echannel,c,s,True)
-#            
-#            setattr(self,'encode_%i'%(len(self.encodes)),ex)
-#            self.encodes.insert(0,(ex,dc,s,echannel))
-#            echannel=c # use the output channel number as the input for the next loop
-#            
-#        # decode stage
-#        for ex,c,s,ec in self.encodes:
-#            up=self._getUpsampleConcat(echannel,echannel,s,self.upsamplekernelSize)
-#            x=self._getLayer(echannel+ec,c,1,False)
-#            echannel=c
-#            
-#            setattr(self,'up_%i'%(len(self.decodes)),up)
-#            setattr(self,'decode_%i'%(len(self.decodes)),x)
-#            
-#            self.decodes.append((up,x))
-#            
-#    def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
-#        return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)
-#    
-#    def _getLayer(self,inChannels,outChannels,strides,isEncode):
-#        return nn.Conv2d(inChannels,outChannels,3,strides)
-#        
-#    def forward(self,x):
-#        elist=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
-#
-#        # encode stage
-#        for ex,_,_,_ in reversed(self.encodes):
-#            i=len(elist)
-#            addx=x
-#            x=ex(x)
-#            elist.insert(0,(addx,)+self.decodes[-i-1])
-#
-#        # decode stage
-#        for addx,up,ex in elist:
-#            x=up(x,addx)
-#            x=ex(x)
-#            
-#        # generate prediction outputs, x has shape BCHW
-#        if self.numClasses==1:
-#            preds=(x[:,0]>=0).type(torch.IntTensor)
-#        else:
-#            preds=x.max(1)[1] # take the index of the max value along dimension 1
-#
-#        return x, preds
-#
-#
-#class Unet(BaseUnet):
-#    def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0):
-#         self.kernelSize=kernelSize
-#         self.numSubunits=numSubunits
-#         self.instanceNorm=instanceNorm
-#         self.dropout=dropout
-#         super(Unet,self).__init__(inChannels,numClasses,channels,strides,3)
-#
-#    def _getLayer(self,inChannels,outChannels,strides,isEncode):
-#        numSubunits=self.numSubunits if isEncode else 1
-#        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,numSubunits,self.instanceNorm,self.dropout)
-#    
-#
-#class BranchUnet(BaseUnet):
-#    def __init__(self,inChannels,numClasses,channels,strides,branches,instanceNorm=True,dropout=0):
-#         self.branches=branches
-#         self.instanceNorm=instanceNorm
-#         self.dropout=dropout
-#         super(BranchUnet,self).__init__(inChannels,numClasses,channels,strides,3)
-#         
-#    def _getLayer(self,inChannels,outChannels,strides,isEncode):
-#        return ResidualBranchUnit2D(inChannels,outChannels,strides,self.branches,self.instanceNorm,self.dropout)
-
-
         
     
 class UnetBlock(nn.Sequential):
