@@ -36,10 +36,10 @@ class NetworkManager(object):
     method descriptions for netForward(), lossForward(), train(), and evaluate() explain the necessary details to 
     implementing a subtype of this class.
     '''
-    def __init__(self,net,loss,isCuda=True,savedirprefix=None,opt=None,**params):
+    def __init__(self,net,loss,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',**params):
         '''
         Initialize the manager with the given network `net' to be managed, optimizer `opt', and loss function `loss'.
-        If `isCuda' is True the network and inputs are converted to cuda tensors. The `savedirprefix' is the prefix for
+        If `isCuda' is True the network and inputs are converted to cuda tensors. The `saveDirPrefix' is the prefix for
         the new directory to create if it doesn't exist, if it does exist it is expected to be a previously created
         directory with a stored network that is reloaded. The `params' value is a user parameter dict for the network.
         '''
@@ -55,8 +55,8 @@ class NetworkManager(object):
         self.isRunning=True
         
         self.savedir=None
-        self.saveprefix='net'
-        self.logfilename='train.log'
+        self.savePrefix=savePrefix
+        self.logfilename='%s_train.log'%(self.savePrefix,)
         
         if isCuda and self.net is not None:
             self.net=self.net.cuda()
@@ -66,12 +66,12 @@ class NetworkManager(object):
             betas=params.get('betas',(0.9, 0.999))
             self.opt=torch.optim.Adam(self.net.parameters(),lr=lr,betas=betas)
 
-        if savedirprefix is not None:
-            if os.path.exists(savedirprefix):
-                self.savedir=savedirprefix
+        if saveDirPrefix is not None:
+            if os.path.exists(saveDirPrefix):
+                self.savedir=saveDirPrefix
                 self.reload()
             else:
-                self.savedir='%s-%s'%(savedirprefix,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
+                self.savedir='%s-%s'%(saveDirPrefix,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
                 os.mkdir(self.savedir)
                 
     def updateStep(self,step,steploss):
@@ -79,8 +79,11 @@ class NetworkManager(object):
         pass
     
     def saveStep(self,step,steploss):
-        '''Called after every model save operation, with arguments for the step number and loss at that step.'''
-        pass
+        '''
+        Called at every save operation, with arguments for the step number and loss at that step. By default this saves
+        the model to a file named for the savePrefix value and step.
+        '''
+        self.save(os.path.join(self.savedir,'%s_%.6i.pth'%(self.savePrefix,self.step)))
     
     def evalStep(self,index,steploss,results):
         '''
@@ -116,7 +119,7 @@ class NetworkManager(object):
     def reload(self,prefix=None):
         '''Reload the network state by loading the most recent .pth file in the save directory if there is one.'''
         if self.savedir:
-            files=glob.glob(os.path.join(self.savedir,(self.saveprefix if prefix is None else prefix)+'*.pth'))
+            files=glob.glob(os.path.join(self.savedir,(self.savePrefix if prefix is None else prefix)+'*.pth'))
             if files:
                 self.load(max(files,key=os.path.getctime))
     
@@ -145,6 +148,10 @@ class NetworkManager(object):
         state=dict(self.net.state_dict())
         state['__net__']=self.net
         torch.save(state,path)
+        
+    def setRequiresGrad(self,grad=True):
+        for p in self.net.parameters():
+            p.requires_grad=grad
         
     def convertArray(self,arr):
         '''Convert the Numpy array `arr' to a PyTorch tensor, converting to Cuda if necessary.'''
@@ -214,7 +221,6 @@ class NetworkManager(object):
                 self.params['loss']=lossval
             
                 if self.savedir and savesteps>0 and (not self.isRunning or s==steps or (s%(steps//savesteps))==0):
-                    self.save(os.path.join(self.savedir,'%s_%.6i.pth'%(self.saveprefix,self.step)))
                     self.saveStep(s,lossval)
                     
                 if not self.isRunning:
@@ -307,10 +313,10 @@ class SegmentMgr(NetworkManager):
     the learn rate, and a loss function defined as DiceLoss. This expects the first value in self.traininputs to
     be the images and the last to be the masks, and the first value in self.netoutputs to be the logits.
     '''
-    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
+    def __init__(self,net,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         loss=loss if loss is not None else pytorchnet.DiceLoss()
         
-        super(SegmentMgr,self).__init__(net,loss,isCuda,savedirprefix,**params)
+        super(SegmentMgr,self).__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
     
     def netForward(self):
         images=self.traininputs[0]
@@ -328,10 +334,10 @@ class AutoEncoderMgr(NetworkManager):
     the learn rate, and a loss function defined as BCEWithLogitsLoss. This expects the first value in self.traininputs 
     to be the input images and the last to be the output images, and the first value in self.netoutputs to be the logits.
     '''
-    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
+    def __init__(self,net,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         loss=loss if loss is not None else torch.nn.BCEWithLogitsLoss()
         
-        super(AutoEncoderMgr,self).__init__(net,loss,isCuda,savedirprefix,**params)
+        super(AutoEncoderMgr,self).__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
     
     def netForward(self):
         images=self.traininputs[0]
@@ -344,10 +350,10 @@ class AutoEncoderMgr(NetworkManager):
     
     
 class VarAutoEncoderMgr(NetworkManager):
-    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
+    def __init__(self,net,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         loss=loss if loss is not None else pytorchnet.KLDivLoss()
         
-        super(VarAutoEncoderMgr,self).__init__(net,loss,isCuda,savedirprefix,**params)
+        super(VarAutoEncoderMgr,self).__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
     
     def netForward(self):
         images=self.traininputs[0]
@@ -366,10 +372,10 @@ class ImageClassifierMgr(NetworkManager):
     be the input images and the last to be the 1D category labels vector, and the first value in self.netoutputs to be 
     the one-hot vector of predictions, ie. of dimensions BC or (batch,# of categories).
     '''
-    def __init__(self,net,isCuda=True,savedirprefix=None,loss=None,**params):
+    def __init__(self,net,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         loss=loss if loss is not None else torch.nn.CrossEntropyLoss()
         
-        super(ImageClassifierMgr,self).__init__(net,loss,isCuda,savedirprefix,**params)
+        super(ImageClassifierMgr,self).__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
         
     def netForward(self):
         images=self.traininputs[0]
@@ -385,13 +391,13 @@ class DiscriminatorMgr(NetworkManager):
     realLabel=1
     genLabel=0
     
-    def __init__(self,net,realDataSrc,savedirprefix=None,loss=None,stepOptimizer=True,separateBackward=True,**params):
+    def __init__(self,net,realDataSrc,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,stepOptimizer=True, separateBackward=True,**params):
         '''
         Initialize the manager. Arguments:
          - net: discriminator network
          - realDataSrc: DataSource returning real training images as first value in Pytorch BC[D]HW order, second value 
            is B1 array filled with realLabel.
-         - savedirprefix: prefix for saving to a directory, this may overwrite other networks if used with a generator
+         - saveDirPrefix: prefix for saving to a directory, this may overwrite other networks if used with a generator
            so set self.saveprefix to something other than the default
          - loss: loss function, if this isn't provided the default is BCELoss
         '''
@@ -405,7 +411,7 @@ class DiscriminatorMgr(NetworkManager):
         self.genloss=0
         
         loss=loss if loss is not None else torch.nn.BCELoss()
-        NetworkManager.__init__(self,net,loss,savedirprefix=savedirprefix,**params)
+        NetworkManager.__init__(self,net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
         
     def netForward(self):
         images=self.traininputs[0]
@@ -478,12 +484,12 @@ class DiscriminatorMgr(NetworkManager):
     
 
 class GeneratorMgr(NetworkManager):
-    def __init__(self,net,disc,savedirprefix=None,loss=None,**params):
+    def __init__(self,net,disc,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         self.disc=disc
         if loss is None:
             loss=disc
             
-        NetworkManager.__init__(self,net,loss,savedirprefix=savedirprefix,**params)
+        NetworkManager.__init__(self,net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
         
     def netForward(self):
         latents=self.traininputs[0]

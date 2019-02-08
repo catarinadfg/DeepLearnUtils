@@ -3,37 +3,22 @@ from __future__ import division, print_function
 import threading
 import multiprocessing as mp
 import platform
+import queue
 from multiprocessing import sharedctypes
 from contextlib import contextmanager
-
-try:
-    import queue
-except:
-    import Queue as queue
 
 import numpy as np
 
 
 def toShared(arrays):
     '''Convert the given Numpy array to a shared ctypes object.'''
-    if isinstance(arrays,tuple):
-        out=[]
-        for arr in arrays:
-            carr=np.ctypeslib.as_ctypes(arr)
-            out.append(sharedctypes.RawArray(carr._type_, carr))
-            
-        return tuple(out)
-    else:
-        carr=np.ctypeslib.as_ctypes(arrays)
-        return sharedctypes.RawArray(carr._type_, carr)
+    carr=np.ctypeslib.as_ctypes(arrays)
+    return sharedctypes.RawArray(carr._type_, carr)
 
 
 def fromShared(arrays):
     '''Map the given ctypes object to a Numpy array, this is expected to be a shared object from the parent.'''
-    if isinstance(arrays,tuple):
-        return tuple(np.ctypeslib.as_array(arr) for arr in arrays)
-    else:
-        return np.ctypeslib.as_array(arrays)
+    return np.ctypeslib.as_array(arrays)
         
         
 def initProc(inArrays_,augs_,augments_):
@@ -126,7 +111,7 @@ class DataSource(object):
                 for t in threads:
                     t.join()
                     
-                batchQueue.put(tuple(a.copy() for a in augs))
+                batchQueue.put(tuple(a.copy() for a in augs)) # copy to prevent overwriting arrays before they're used
                 
         batchThread=threading.Thread(target=_batchThread)
         batchThread.start()
@@ -204,7 +189,7 @@ class DataSource(object):
 def randomDataSource(shape,augments=[],dtype=np.float32):
     '''
     Returns a DataSource producing batches of `shape'-sized standard normal random arrays of type `dtype'. The `augments'
-    list of augmentations is pass to the DataSource object when constructed. The input and output are the same array.
+    list of augmentations is pass to the DataSource object's constructor. Each batch contains the same array given twice.
     '''
     def randData(batchSize=None,selectProbs=None,chosenInds=None):
         if chosenInds: # there are no arrays to index from so use the list size as batchSize instead

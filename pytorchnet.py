@@ -90,7 +90,7 @@ class DiceLoss(_Loss):
             tsum=target
         else:
             # multiclass dice loss, use softmax and convert target to one-hot encoding
-            probs=F.softmax(source)
+            probs=F.softmax(source,1)
             tsum=oneHot(target,source.shape[1]) # BCHW -> BCHWN
             tsum=tsum[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
             
@@ -401,10 +401,10 @@ class AutoEncoder(nn.Module):
                 
             echannel=c
 
-        self.conv=nn.Sequential(OrderedDict(self.modules))
+        self.seq=nn.Sequential(OrderedDict(self.modules))
         
     def forward(self,x):
-        return (self.conv(x),)
+        return (self.seq(x),)
     
     
 class VarAutoEncoder(nn.Module):
@@ -430,7 +430,7 @@ class VarAutoEncoder(nn.Module):
             self.encodeModules['encode_%i'%i]=ResidualUnit2D(echannel,c,s,kernelSize,numSubunits,instanceNorm,dropout)
             #self.encodeModules['encode_%i'%i]=Convolution2D(echannel,c,s,kernelSize,instanceNorm,dropout)
             echannel=c
-            self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize)) #self.finalSize//s
+            self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
             
         self.encodes=nn.Sequential(self.encodeModules)
         
@@ -473,101 +473,101 @@ class VarAutoEncoder(nn.Module):
         return self.decode(z), mu, logvar, z
     
     
-class BaseUnet(nn.Module):
-    def __init__(self,inChannels,numClasses,channels,strides,upsamplekernelSize=3):
-        super(BaseUnet,self).__init__()
-        assert len(channels)==len(strides)
-        self.inChannels=inChannels
-        self.numClasses=numClasses
-        self.channels=channels
-        self.strides=strides
-        self.upsamplekernelSize=upsamplekernelSize
-        
-        dchannels=[self.numClasses]+list(self.channels[:-1])
-
-        self.encodes=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
-        self.decodes=[]
-        echannel=inChannels
-        
-        # encode stage
-        for c,s,dc in zip(self.channels,self.strides,dchannels):
-            ex=self._getLayer(echannel,c,s,True)
-            
-            setattr(self,'encode_%i'%(len(self.encodes)),ex)
-            self.encodes.insert(0,(ex,dc,s,echannel))
-            echannel=c # use the output channel number as the input for the next loop
-            
-        # decode stage
-        for ex,c,s,ec in self.encodes:
-            up=self._getUpsampleConcat(echannel,echannel,s,self.upsamplekernelSize)
-            x=self._getLayer(echannel+ec,c,1,False)
-            echannel=c
-            
-            setattr(self,'up_%i'%(len(self.decodes)),up)
-            setattr(self,'decode_%i'%(len(self.decodes)),x)
-            
-            self.decodes.append((up,x))
-            
-    def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
-        return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)
-    
-    def _getLayer(self,inChannels,outChannels,strides,isEncode):
-        return nn.Conv2d(inChannels,outChannels,3,strides)
-        
-    def forward(self,x):
-        elist=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
-
-        # encode stage
-        for ex,_,_,_ in reversed(self.encodes):
-            i=len(elist)
-            addx=x
-            x=ex(x)
-            elist.insert(0,(addx,)+self.decodes[-i-1])
-
-        # decode stage
-        for addx,up,ex in elist:
-            x=up(x,addx)
-            x=ex(x)
-            
-        # generate prediction outputs, x has shape BCHW
-        if self.numClasses==1:
-            preds=(x[:,0]>=0).type(torch.IntTensor)
-        else:
-            preds=x.max(1)[1] # take the index of the max value along dimension 1
-
-        return x, preds
-
-
-class Unet(BaseUnet):
-    def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0):
-         self.kernelSize=kernelSize
-         self.numSubunits=numSubunits
-         self.instanceNorm=instanceNorm
-         self.dropout=dropout
-         super(Unet,self).__init__(inChannels,numClasses,channels,strides,3)
-
-    def _getLayer(self,inChannels,outChannels,strides,isEncode):
-        numSubunits=self.numSubunits if isEncode else 1
-        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,numSubunits,self.instanceNorm,self.dropout)
-    
-
-class BranchUnet(BaseUnet):
-    def __init__(self,inChannels,numClasses,channels,strides,branches,instanceNorm=True,dropout=0):
-         self.branches=branches
-         self.instanceNorm=instanceNorm
-         self.dropout=dropout
-         super(BranchUnet,self).__init__(inChannels,numClasses,channels,strides,3)
-         
-    def _getLayer(self,inChannels,outChannels,strides,isEncode):
-        return ResidualBranchUnit2D(inChannels,outChannels,strides,self.branches,self.instanceNorm,self.dropout)
+#class BaseUnet(nn.Module):
+#    def __init__(self,inChannels,numClasses,channels,strides,upsamplekernelSize=3):
+#        super(BaseUnet,self).__init__()
+#        assert len(channels)==len(strides)
+#        self.inChannels=inChannels
+#        self.numClasses=numClasses
+#        self.channels=channels
+#        self.strides=strides
+#        self.upsamplekernelSize=upsamplekernelSize
+#        
+#        dchannels=[self.numClasses]+list(self.channels[:-1])
+#
+#        self.encodes=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
+#        self.decodes=[]
+#        echannel=inChannels
+#        
+#        # encode stage
+#        for c,s,dc in zip(self.channels,self.strides,dchannels):
+#            ex=self._getLayer(echannel,c,s,True)
+#            
+#            setattr(self,'encode_%i'%(len(self.encodes)),ex)
+#            self.encodes.insert(0,(ex,dc,s,echannel))
+#            echannel=c # use the output channel number as the input for the next loop
+#            
+#        # decode stage
+#        for ex,c,s,ec in self.encodes:
+#            up=self._getUpsampleConcat(echannel,echannel,s,self.upsamplekernelSize)
+#            x=self._getLayer(echannel+ec,c,1,False)
+#            echannel=c
+#            
+#            setattr(self,'up_%i'%(len(self.decodes)),up)
+#            setattr(self,'decode_%i'%(len(self.decodes)),x)
+#            
+#            self.decodes.append((up,x))
+#            
+#    def _getUpsampleConcat(self,inChannels,outChannels,stride,kernelSize):
+#        return UpsampleConcat2D(inChannels,outChannels,stride,kernelSize)
+#    
+#    def _getLayer(self,inChannels,outChannels,strides,isEncode):
+#        return nn.Conv2d(inChannels,outChannels,3,strides)
+#        
+#    def forward(self,x):
+#        elist=[] # list of encode stages, this is build up in reverse order so that the decode stage works in reverse
+#
+#        # encode stage
+#        for ex,_,_,_ in reversed(self.encodes):
+#            i=len(elist)
+#            addx=x
+#            x=ex(x)
+#            elist.insert(0,(addx,)+self.decodes[-i-1])
+#
+#        # decode stage
+#        for addx,up,ex in elist:
+#            x=up(x,addx)
+#            x=ex(x)
+#            
+#        # generate prediction outputs, x has shape BCHW
+#        if self.numClasses==1:
+#            preds=(x[:,0]>=0).type(torch.IntTensor)
+#        else:
+#            preds=x.max(1)[1] # take the index of the max value along dimension 1
+#
+#        return x, preds
+#
+#
+#class Unet(BaseUnet):
+#    def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0):
+#         self.kernelSize=kernelSize
+#         self.numSubunits=numSubunits
+#         self.instanceNorm=instanceNorm
+#         self.dropout=dropout
+#         super(Unet,self).__init__(inChannels,numClasses,channels,strides,3)
+#
+#    def _getLayer(self,inChannels,outChannels,strides,isEncode):
+#        numSubunits=self.numSubunits if isEncode else 1
+#        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,numSubunits,self.instanceNorm,self.dropout)
+#    
+#
+#class BranchUnet(BaseUnet):
+#    def __init__(self,inChannels,numClasses,channels,strides,branches,instanceNorm=True,dropout=0):
+#         self.branches=branches
+#         self.instanceNorm=instanceNorm
+#         self.dropout=dropout
+#         super(BranchUnet,self).__init__(inChannels,numClasses,channels,strides,3)
+#         
+#    def _getLayer(self,inChannels,outChannels,strides,isEncode):
+#        return ResidualBranchUnit2D(inChannels,outChannels,strides,self.branches,self.instanceNorm,self.dropout)
 
 
         
     
 class UnetBlock(nn.Sequential):
-    def __init__(self,encode,decode,subblock,isTop=False):
+    def __init__(self,encode,decode,subblock,addSkipPath=True):
         super(UnetBlock,self).__init__()
-        self.isTop=isTop
+        self.addSkipPath=addSkipPath
         self.add_module('encode',encode)
         
         if subblock is not None:
@@ -578,35 +578,44 @@ class UnetBlock(nn.Sequential):
     def forward(self,x):
         xx=super().forward(x)
         
-        if self.isTop:
-            return xx
-        else:
+        if self.addSkipPath:
             return torch.cat([x,xx],1)
+        else:
+            return xx
         
-class BaseUnet1(nn.Module):
-    def __init__(self,inChannels,numClasses,channels,strides,upKernelSize=3):
-        super(BaseUnet1,self).__init__()
+        
+class Unet(nn.Module):
+    def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,upKernelSize=3):
+        super().__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
         self.numClasses=numClasses
         self.channels=channels
         self.strides=strides
+        self.kernelSize=kernelSize
         self.upKernelSize=upKernelSize
         self.model=None
         
-        def _createBlock(inc,outc,channels,strides,isTop=False):
+        def _createBlock(inc,outc,channels,strides,isTop):
             if len(channels)==0:
                 return None
             
             c=channels[0]
             s=strides[0]
             isBottom=len(channels)==1
-            down=self._getDownLayer(inc,c,s)
-            up=self._getUpLayer(c*(1 if isBottom else 2),outc,s)
+            down=self._getDownLayer(inc,c,s,isTop)
+            up=self._getUpLayer(c*(1 if isBottom else 2),outc,s,isTop)
+            subblock=_createBlock(c,c,channels[1:],strides[1:],False)
             
-            return UnetBlock(down,up,_createBlock(c,c,channels[1:],strides[1:]),isTop)
+            return UnetBlock(down,up,subblock,not isTop)
         
         self.model=_createBlock(inChannels,numClasses,self.channels,self.strides,True)
+    
+    def _getDownLayer(self,inChannels,outChannels,strides,isTop):
+        return Convolution2D(inChannels,outChannels,strides,self.kernelSize)
+    
+    def _getUpLayer(self,inChannels,outChannels,strides,isTop):
+        return ConvTranspose2D(inChannels,outChannels,strides,self.upKernelSize)
             
     def forward(self,x):
         x= self.model(x)
@@ -618,24 +627,32 @@ class BaseUnet1(nn.Module):
             preds=x.max(1)[1] # take the index of the max value along dimension 1
 
         return x, preds
-    
-    def _getDownLayer(self,inChannels,outChannels,strides):
-#        padding=samePadding(3)
-#        return nn.Conv2d(inChannels,outChannels,3,strides,padding) 
-        return Convolution2D(inChannels,outChannels,strides,3)
-    
-    def _getUpLayer(self,inChannels,outChannels,strides):
-#        padding=strides-1
-#        return nn.ConvTranspose2d(inChannels,outChannels,self.upKernelSize,strides,1,padding)
-        return ConvTranspose2D(inChannels,outChannels,strides,3)
         
     
-if __name__=='__main__':
-#    b1=UnetBlock(nn.Conv2d(5,10,3,2,samePadding(3)),nn.ConvTranspose2d(10,5,3,2,1,1),None)
-#    b2=UnetBlock(nn.Conv2d(3,5,3,2,samePadding(3)),nn.ConvTranspose2d(5,3,3,2,1,1),b1)
+class ResidualUnet(Unet):
+    def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,upKernelSize=3,numSubunits=2,instanceNorm=True,dropout=0):
+        self.numSubunits=numSubunits
+        self.instanceNorm=instanceNorm
+        self.dropout=dropout
+        super().__init__(inChannels,numClasses,channels,strides,kernelSize,upKernelSize)
     
-#    print(b1(torch.zeros(22,5,16,16)).shape)
-#    print(b2(torch.zeros(22,3,16,16)).shape)
-    unet=BaseUnet1(1,3,[5,10,15],[2,2,1])
+    def _getDownLayer(self,inChannels,outChannels,strides,isTop):
+        return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,self.numSubunits,self.instanceNorm,self.dropout)
+    
+    def _getUpLayer(self,inChannels,outChannels,strides,isTop):
+        return nn.Sequential(
+            ConvTranspose2D(inChannels,outChannels,strides,self.upKernelSize),
+            ResidualUnit2D(outChannels,outChannels,1,self.kernelSize,1,self.instanceNorm,self.dropout,lastConvOnly=isTop)
+        )
+    
+    
+if __name__=='__main__':
+    b1=UnetBlock(nn.Conv2d(5,10,3,2,samePadding(3)),nn.ConvTranspose2d(10,5,3,2,1,1),None)
+    b2=UnetBlock(nn.Conv2d(3,5,3,2,samePadding(3)),nn.ConvTranspose2d(10,3,3,2,1,1),b1,True)
+    
+    print(b1(torch.zeros(22,5,16,16)).shape)
+    print(b2(torch.zeros(22,3,16,16)).shape)
+    
+    unet=ResidualUnet(1,3,[5,10,15],[2,2,1])
     print(unet)
     print(unet(torch.zeros((2,1,16,16)))[0].shape)
