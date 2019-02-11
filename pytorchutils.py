@@ -81,7 +81,7 @@ class NetworkManager(object):
     def saveStep(self,step,steploss):
         '''
         Called at every save operation, with arguments for the step number and loss at that step. By default this saves
-        the model to a file named for the savePrefix value and step.
+        the model to a file named for the self.savePrefix value and self.step (ie. ignores `step' and `steploss'). 
         '''
         self.save(os.path.join(self.savedir,'%s_%.6i.pth'%(self.savePrefix,self.step)))
     
@@ -480,6 +480,7 @@ class DiscriminatorMgr(NetworkManager):
         cats=torch.full((output.shape[0],1), self.realLabel)
         if self.isCuda:
             cats=cats.cuda()
+            
         return self.loss(output,cats)
     
 

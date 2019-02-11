@@ -5,7 +5,7 @@ import multiprocessing as mp
 import platform
 import queue
 from multiprocessing import sharedctypes
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 
 import numpy as np
 
@@ -59,6 +59,9 @@ class DataSource(object):
             chosenInds=np.random.choice(self.arrays[0].shape[0],batchSize,p=selectProbs)
                 
         return tuple(a[chosenInds] for a in self.arrays)
+    
+    def stop(self,isThreaded):
+        pass
                 
     def getRandomBatch(self,batchSize):
         '''Call the generator callable with the given `batchSize' value with self.selectProb as the second argument.'''
@@ -120,8 +123,9 @@ class DataSource(object):
             yield batchQueue.get
         finally:
             isRunning=False
+            self.stop(True)
             try:
-                batchQueue.get(False) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
+                batchQueue.get(True) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
             except queue.Empty:
                 pass
             
@@ -180,8 +184,9 @@ class DataSource(object):
             yield _get
         finally:
             isRunning=False
+            self.stop(False)
             try:
-                batchQueue.get(False) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
+                batchQueue.get(True) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
             except queue.Empty:
                 pass
         
@@ -221,27 +226,27 @@ class BufferDataSource(DataSource):
             
     def bufferSize(self):
         return 0 if not self.arrays else self.arrays[0].shape[0]
-        
-        
+
+    
 class MergeDataSource(DataSource):
-    def __init__(self,src1,src2,numThreads=None,augments=[]):
-        self.src1=src1
-        self.src2=src2
+    def __init__(self,srcs,numThreads=None,augments=[]):
+        self.srcs=srcs
         self.batchSize=0
         self.gen=None
         self.numThreads=numThreads
         
         DataSource.__init__(self,dataGen=self._dataGen,augments=augments)
-        
+    
+    def stop(self,isThreaded):
+        self.gen=None
+            
     def _setBatchSize(self,batchSize):
         def yieldData():
-            with self.src1.threadBatchGen(self.batchSize,self.numThreads) as gen1: 
-                with self.src2.threadBatchGen(self.batchSize,self.numThreads) as gen2:
-                    while True:
-                        d1=gen1()
-                        d2=gen2()
-                        yield d1+d2
-                            
+            with ExitStack() as stack:
+                gens=[stack.enter_context(s.threadBatchGen(self.batchSize,self.numThreads)) for s in self.srcs]
+                while True:
+                    yield sum([g() for g in gens],())
+                    
         if self.batchSize!=batchSize:
             self.batchSize=batchSize
             self.gen=yieldData()
@@ -251,7 +256,6 @@ class MergeDataSource(DataSource):
             batchSize=len(chosenInds)
             
         self._setBatchSize(batchSize)
-        
         return next(self.gen) 
         
 
@@ -274,8 +278,15 @@ if __name__=='__main__':
         batch=gen()
         print([a.shape for a in batch])
     
-    bsrc.clearBuffer()
+#     bsrc.clearBuffer()
         
-    with bsrc.processBatchGen(4) as gen:
+#     with bsrc.processBatchGen(4) as gen:
+#         batch=gen()
+#         print([a.shape for a in batch])
+
+    merge=MergeDataSource([src])
+    with merge.processBatchGen(4) as gen:
         batch=gen()
-        print([a.shape for a in batch])
+        print([b.shape for b in batch])
+        
+    print('Done')
