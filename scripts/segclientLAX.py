@@ -14,7 +14,12 @@ from that in segclient.py to account for this.
 from __future__ import division, print_function
 from eidolon import ImageSceneObject, processImageNp, first, rescaleArray, calculateMotionFFT
 import io
-import urllib2
+
+try:
+    from urllib2 import Request,urlopen,urlencode
+except:
+    from urllib.request import Request, urlopen
+    from urllib.parse import urlencode
 
 import numpy as np
 from scipy import ndimage
@@ -27,7 +32,7 @@ except:
 mgr=mgr # pylint:disable=invalid-name,used-before-assignment
 
 # the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
-localurl=locals().get('url','http://bioeng187-pc:5000/segment/lax')
+localurl=locals().get('url','http://bioeng187-pc:5000/infer/lax')
 
 
 def processImage(obj):
@@ -47,8 +52,8 @@ def requestSeg(inmat,outmat,url):
         imwrite(stream,img,format='png') # encode image as png
         stream.seek(0)
 
-        request = urllib2.Request(url+'?keepLargest=true',stream.read(),{'Content-Type':'image/png'})
-        req=urllib2.urlopen(request)
+        request = Request(url+'?'+urlencode({'keepLargest':'True'}),stream.read(),{'Content-Type':'image/png'})
+        req=urlopen(request)
         
         if req.code==200: 
             outmat[:,:,0]=imread(io.BytesIO(req.read()))>0
