@@ -229,6 +229,22 @@ def copypasteArrays(src,dest,srccenter,destcenter,dims):
     return tuple(srcslices), tuple(destslices)
 
 
+def resizeCenter(img,*resizeDims):
+    '''
+    Resize `img' by cropping or expanding the image from the center. The `resizeDims' values are the output dimensions
+    (or None to use original dimension of `img'). If a dimension is smaller than that of `img' then the result will be
+    cropped and if larger padded with zeros, in both cases this is done relative to the center of `img'. The result is
+    a new image with the specified dimensions and values from `img' copied into its center.
+    '''
+    resizeDims=tuple(resizeDims[i] or img.shape[i] for i in range(len(resizeDims)))
+    
+    dest=np.zeros(resizeDims,img.dtype)
+    srcslices,destslices=copypasteArrays(img,dest,np.asarray(img.shape)//2,np.asarray(dest.shape)//2,resizeDims)
+    dest[destslices]=img[srcslices]
+    
+    return dest
+
+
 def flatten4DVolume(im):
     '''Given a volume in HWDT ordering, reshape dimensions D and T to a single D dimension and reorder result axes to DHW.'''
     return im.reshape((im.shape[0],im.shape[1],-1)).transpose((2,0,1))
@@ -498,6 +514,23 @@ if __name__=='__main__':
 #    for cpu,load in getCpuInfo().items():
 #        print(cpu,load)
 
-    plt.rcParams['figure.figsize']=[6,2]
-    ax=plotSystemInfo()
+#    plt.rcParams['figure.figsize']=[6,2]
+#    ax=plotSystemInfo()
     
+    src=np.random.randint(0,10,(6,6))
+    
+    print(src)
+    
+#    print(cropCenter(src,3,3))
+#    print(cropCenter(src,10,10))
+#    print(cropCenter(src,10,3))
+#    
+#    dest=np.zeros((10,4))
+#    
+#    srcslices,destslices=copypasteArrays(src,dest,np.asarray(src.shape)//2,np.asarray(dest.shape)//2,(4,5))
+#    dest[destslices]=src[srcslices]
+#    print(dest)
+    
+    print(resizeCenter(src,10,10))
+    print(resizeCenter(src,4,4))
+    print(resizeCenter(src,4,10))
