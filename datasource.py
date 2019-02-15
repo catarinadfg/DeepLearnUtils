@@ -259,6 +259,77 @@ class MergeDataSource(DataSource):
         return next(self.gen) 
         
 
+class FileDataSource(DataSource):
+    def __init__(self,*filelists,maxSize=100*(2**20), selectProbs=None,augments=[]):
+        assert all(len(f)==len(filelists[0]) for f in filelists), "All members of `filelists' must be the same length"
+        
+        import imageio
+        self.iio=imageio
+        
+        self.imageCache={}
+        self.currentSize=0
+        self.maxSize=maxSize
+        super().__init__(*list(map(np.asarray,filelists)),dataGen=self._fileDataGen,selectProbs=selectProbs,augments=augments)
+        
+    def loadFile(self,path):
+        return self.iio.read(path).get_data(0)
+        
+    def _getCachedFile(self,path):
+        if path not in self.imageCache:
+            im=self.loadFile(path)
+            self.currentSize+=im.nbytes
+            self.imageCache[path]=im
+            
+        return self.imageCache[path]
+            
+#     def _removeFiles(self,excludes):
+#         if self.maxSize<=0:
+#             return 
+        
+#         excludes=set(excludes)
+#         candidates=[i for i in self.imageCache if i not in excludes]
+        
+#         while len(candidates)>0 and self.currentSize>self.maxSize:
+#             c=candidates.pop(0)
+#             self.currentSize-=self.imageCache[c].nbytes
+#             del self.imageCache[c]
+
+    def _removeFiles(self):
+        if self.maxSize<=0:
+            return 
+        
+        candidates=list(self.imageCache)
+        
+        while len(candidates)>0 and self.currentSize>self.maxSize:
+            c=candidates.pop(0)
+            self.currentSize-=self.imageCache[c].nbytes
+            del self.imageCache[c]
+        
+    def _fileDataGen(self,batchSize=None,selectProbs=None,chosenInds=None):
+        if chosenInds is None:
+            chosenInds=np.random.choice(self.arrays[0].shape[0],batchSize,p=selectProbs)
+            
+        outs=[]
+#         files=[]
+        
+        for arr in self.arrays:
+            chosen=arr[chosenInds]
+#             files+=chosen.tolist()
+            im=self._getCachedFile(chosen[0])
+            out=np.zeros((len(chosenInds),)+im.shape,im.dtype)
+            
+            for i,c in enumerate(chosen):
+                out[i]=self._getCachedFile(c)
+                
+            outs.append(out)
+            
+#         self._removeFiles(files)
+
+        self._removeFiles()
+        
+        return tuple(outs)
+    
+    
 if __name__=='__main__':
     def testAug(im,cat):
         return im[0],cat
