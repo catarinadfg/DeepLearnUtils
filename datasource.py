@@ -89,6 +89,20 @@ class DataSource(object):
                 aug[i]=out
                 
     @contextmanager
+    def localBatchGen(self,batchSize):
+        inArrays=self.getIndexBatch([0])
+        augTest=self.getAugmentedArrays([a[0] for a in inArrays])
+        
+        augs=tuple(np.zeros((batchSize,)+a.shape,a.dtype) for a in augTest)
+        
+        def _getBatch():
+            batch=self.getRandomBatch(batchSize)
+            self.applyAugments(batch,augs,list(range(batchSize)))
+            return augs
+        
+        yield _getBatch
+                
+    @contextmanager
     def threadBatchGen(self,batchSize,numThreads=None):
         '''Yields a callable object which produces `batchSize' batches generated in `numThreads' threads.'''
         numThreads=min(batchSize,numThreads or mp.cpu_count())
@@ -229,7 +243,7 @@ class BufferDataSource(DataSource):
 
     
 class MergeDataSource(DataSource):
-    def __init__(self,srcs,numThreads=None,augments=[]):
+    def __init__(self,*srcs,numThreads=None,augments=[]):
         self.srcs=srcs
         self.batchSize=0
         self.gen=None
@@ -265,14 +279,17 @@ class FileDataSource(DataSource):
         
         import imageio
         self.iio=imageio
+        import PIL
+        self.image=PIL.Image
         
         self.imageCache={}
         self.currentSize=0
         self.maxSize=maxSize
-        super().__init__(*list(map(np.asarray,filelists)),dataGen=self._fileDataGen,selectProbs=selectProbs,augments=augments)
+        super().__init__(*list(map(np.asarray,filelists)),dataGen=self._dataGen,selectProbs=selectProbs,augments=augments)
         
     def loadFile(self,path):
-        return self.iio.read(path).get_data(0)
+#        return self.iio.imread(path)
+        return np.asarray(self.image.open(path)).copy()
         
     def _getCachedFile(self,path):
         if path not in self.imageCache:
@@ -281,40 +298,25 @@ class FileDataSource(DataSource):
             self.imageCache[path]=im
             
         return self.imageCache[path]
-            
-#     def _removeFiles(self,excludes):
-#         if self.maxSize<=0:
-#             return 
-        
-#         excludes=set(excludes)
-#         candidates=[i for i in self.imageCache if i not in excludes]
-        
-#         while len(candidates)>0 and self.currentSize>self.maxSize:
-#             c=candidates.pop(0)
-#             self.currentSize-=self.imageCache[c].nbytes
-#             del self.imageCache[c]
 
     def _removeFiles(self):
         if self.maxSize<=0:
             return 
         
-        candidates=list(self.imageCache)
-        
+        candidates=list(self.imageCache)        
         while len(candidates)>0 and self.currentSize>self.maxSize:
             c=candidates.pop(0)
-            self.currentSize-=self.imageCache[c].nbytes
+            im=self.imageCache[c]
+            self.currentSize-=im.nbytes
             del self.imageCache[c]
         
-    def _fileDataGen(self,batchSize=None,selectProbs=None,chosenInds=None):
+    def _dataGen(self,batchSize=None,selectProbs=None,chosenInds=None):
         if chosenInds is None:
             chosenInds=np.random.choice(self.arrays[0].shape[0],batchSize,p=selectProbs)
             
         outs=[]
-#         files=[]
-        
         for arr in self.arrays:
             chosen=arr[chosenInds]
-#             files+=chosen.tolist()
             im=self._getCachedFile(chosen[0])
             out=np.zeros((len(chosenInds),)+im.shape,im.dtype)
             
@@ -323,8 +325,6 @@ class FileDataSource(DataSource):
                 
             outs.append(out)
             
-#         self._removeFiles(files)
-
         self._removeFiles()
         
         return tuple(outs)

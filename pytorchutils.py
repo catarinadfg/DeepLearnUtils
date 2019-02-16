@@ -83,7 +83,7 @@ class NetworkManager(object):
         Called at every save operation, with arguments for the step number and loss at that step. By default this saves
         the model to a file named for the self.savePrefix value and self.step (ie. ignores `step' and `steploss'). 
         '''
-        self.save(os.path.join(self.savedir,'%s_%.6i.pth'%(self.savePrefix,self.step)))
+        self.save(os.path.join(self.savedir,'%s_%.6i.pth'%(self.savePrefix,step)))
     
     def evalStep(self,index,steploss,results):
         '''
@@ -221,7 +221,7 @@ class NetworkManager(object):
                 self.params['loss']=lossval
             
                 if self.savedir and savesteps>0 and (not self.isRunning or s==steps or (s%(steps//savesteps))==0):
-                    self.saveStep(s,lossval)
+                    self.saveStep(self.step,lossval)
                     
                 if not self.isRunning:
                     break
@@ -457,6 +457,7 @@ class DiscriminatorMgr(NetworkManager):
     def train(self,realinputfunc,geninputfunc,steps,substeps=1,savesteps=5):
         self.geninputfunc=geninputfunc
         NetworkManager.train(self,realinputfunc,steps,substeps,savesteps)
+        self.geninputfunc=None
     
     def trainDiscriminator(self,batchSize,steps,substeps=1,savesteps=5,numThreads=None,clearBuffer=True):
         if self.genDataSrc.bufferSize()>0:
