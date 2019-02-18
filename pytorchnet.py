@@ -130,6 +130,40 @@ class ThresholdMask(torch.nn.Module):
         return (t/(t+self.eps))/(1-self.eps)
     
         
+class LinearNet(torch.nn.Module):
+    '''Plain neural network of linear layers using PReLU activation.'''
+    def __init__(self,inChannels,outChannels,hiddenChannels,bias=True):
+        '''
+        Defines a network accept input with `inChannels' channels, output of `outChannels' channels, and hidden layers with channels given in `hiddenChannels'.
+        If `bias' is True then linear units have a bias term.
+        '''
+        super().__init__()
+        self.inChannels=inChannels
+        self.outChannels=outChannels
+        self.hiddenChannels=list(hiddenChannels)
+        self.hiddens=torch.nn.Sequential()
+        
+        prevChannels=self.inChannels
+        for i,c in enumerate(hiddenChannels):
+            self.hiddens.add_module('hidden_%i'%i,self._getLayer(prevChannels,c,bias))
+            prevChannels=c
+            
+        self.output=torch.nn.Linear(prevChannels,outChannels,bias)
+        
+    def _getLayer(self,inChannels,outChannels,bias):
+        return torch.nn.Sequential(
+            torch.nn.Linear(inChannels,outChannels,bias),
+            torch.nn.PReLU()
+        )
+    
+    def forward(self,x):
+        b=x.shape[0]
+        x=x.view(b,-1)
+        x=self.hiddens(x)
+        x=self.output(x)
+        return x
+    
+        
 class Convolution2D(nn.Sequential):
     def __init__(self,inChannels,outChannels,strides=1,kernelSize=3,instanceNorm=True,dropout=0,bias=True,convOnly=False):
         super(Convolution2D,self).__init__()
