@@ -10,15 +10,15 @@ from contextlib import contextmanager, ExitStack
 import numpy as np
 
 
-def toShared(arrays):
+def toShared(array):
     '''Convert the given Numpy array to a shared ctypes object.'''
-    carr=np.ctypeslib.as_ctypes(arrays)
+    carr=np.ctypeslib.as_ctypes(array)
     return sharedctypes.RawArray(carr._type_, carr)
 
 
-def fromShared(arrays):
+def fromShared(array):
     '''Map the given ctypes object to a Numpy array, this is expected to be a shared object from the parent.'''
-    return np.ctypeslib.as_array(arrays)
+    return np.ctypeslib.as_array(array)
         
         
 def initProc(inArrays_,augs_,augments_):
@@ -26,8 +26,8 @@ def initProc(inArrays_,augs_,augments_):
     global inArrays
     global augs
     global augments
-    inArrays=fromShared(inArrays_)
-    augs=fromShared(augs_)
+    inArrays=tuple(map(fromShared,inArrays_))
+    augs=tuple(map(fromShared,augs_))
     augments=augments_
     
     
@@ -90,6 +90,7 @@ class DataSource(object):
                 
     @contextmanager
     def localBatchGen(self,batchSize):
+        '''Yields a callable object which produces `batchSize' batches generated in the calling thread.'''
         inArrays=self.getIndexBatch([0])
         augTest=self.getAugmentedArrays([a[0] for a in inArrays])
         
@@ -110,10 +111,8 @@ class DataSource(object):
         isRunning=True
         batchQueue=queue.Queue(1)
         
-        inArrays=self.getIndexBatch([0])
-        augTest=self.getAugmentedArrays([a[0] for a in inArrays])
-        
-        augs=tuple(np.zeros((batchSize,)+a.shape,a.dtype) for a in augTest)
+        with self.localBatchGen(batchSize) as gen:
+            augs=gen()
         
         def _batchThread():
             while isRunning:
@@ -153,12 +152,10 @@ class DataSource(object):
         isRunning=True
         batchQueue=mp.Queue(1)
         
-        inArrays=self.getRandomBatch(batchSize)
-        augTest=self.getAugmentedArrays([a[0] for a in inArrays])
+        with self.localBatchGen(batchSize) as gen:
+            augs=tuple(map(toShared,gen()))
         
-        augs=tuple(toShared(np.zeros((batchSize,)+a.shape,a.dtype)) for a in augTest)
-        
-        inArrays=tuple(map(toShared,inArrays))
+        inArrays=tuple(map(toShared,self.getRandomBatch(batchSize)))
         
         maugs=self.augments
         initargs=(inArrays,augs,maugs)

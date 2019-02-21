@@ -60,25 +60,38 @@ def iouMetric(a,b,smooth=1e-5):
     return 1.0-(inter.sum()+smooth)/(union.sum()+smooth)
 
 
-def getNvidiaInfo(proc='nvidia-smi'):
-    '''
-    Get name, nemory usage, and loads on GPUs using the program "nvidia-smi". The value `proc' should be the path to the
-    program, which must be absolute if it isn't on the path. The return value is a dictionary with a list of GPU names
-    keyed to "names", a list of per-GPU memory use values in MiB keyed to "memused", a list of total memory keyed to 
-    "memtotal", and a list of percentage compute loads keyed to "loads".
-    '''
-    result=str(subprocess.check_output(proc))
+try:
+    import gpustat
+    def getNvidiaInfo(_=None):
+        stat=gpustat.new_query()
     
-    names=re.findall(gpunames,result)
-    load=re.findall(gpuload,result)
-    mem=re.findall(gpumem,result)
-    
-    return dict(
-        names=[m.strip() for m in names],
-        memused=[int(m[0]) for m in mem],
-        memtotal=[int(m[1]) for m in mem],
-        loads=[int(l) for l in load]
-    )    
+        return dict(
+            names=[g.name for g in stat.gpus],
+            memused=[g.memory_used for g in stat.gpus],
+            memtotal=[g.memory_total for g in stat.gpus],
+            loads=[g.utilization for g in stat.gpus]
+        )
+        
+except ImportError:
+    def getNvidiaInfo(proc='nvidia-smi'):
+        '''
+        Get name, nemory usage, and loads on GPUs using the program "nvidia-smi". The value `proc' should be the path to the
+        program, which must be absolute if it isn't on the path. The return value is a dictionary with a list of GPU names
+        keyed to "names", a list of per-GPU memory use values in MiB keyed to "memused", a list of total memory keyed to 
+        "memtotal", and a list of percentage compute loads keyed to "loads".
+        '''
+        result=str(subprocess.check_output(proc))
+        
+        names=re.findall(gpunames,result)
+        load=re.findall(gpuload,result)
+        mem=re.findall(gpumem,result)
+        
+        return dict(
+            names=[m.strip() for m in names],
+            memused=[int(m[0]) for m in mem],
+            memtotal=[int(m[1]) for m in mem],
+            loads=[int(l) for l in load]
+        )    
     
 
 def getMemInfo(src='/proc/meminfo'):
