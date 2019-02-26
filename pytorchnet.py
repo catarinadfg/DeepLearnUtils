@@ -449,20 +449,15 @@ class UnetBlock(nn.Module):
         
     def forward(self,x):
         enc=self.encode(x)
-        
-        if self.subblock is not None:
-            sub=self.subblock(enc)
-            dec=torch.cat([enc,sub],1)
-        else:
-            dec=enc
-            
+        sub=self.subblock(enc)
+        dec=torch.cat([enc,sub],1)
         return self.decode(dec)
     
   
 class Unet(nn.Module):
     def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,upKernelSize=3,numResUnits=0,instanceNorm=True,dropout=0):
         super().__init__()
-        assert len(channels)==len(strides)
+        assert len(channels)==(len(strides)+1)
         self.inChannels=inChannels
         self.numClasses=numClasses
         self.channels=channels
@@ -474,14 +469,18 @@ class Unet(nn.Module):
         self.dropout=dropout
         
         def _createBlock(inc,outc,channels,strides,isTop):
-            if len(channels)==0:
-                return UnetBlock(lambda i:i,lambda i:i,None)
-            
             c=channels[0]
             s=strides[0]
+            
+            if len(channels)>2:
+                subblock=_createBlock(c,c,channels[1:],strides[1:],False)
+                upc=c*2
+            else:
+                subblock=self._getBottomLayer(c,channels[1])
+                upc=c+channels[1]
+                
             down=self._getDownLayer(inc,c,s,isTop)
-            up=self._getUpLayer(c*2,outc,s,isTop)
-            subblock=_createBlock(c,c,channels[1:],strides[1:],False)
+            up=self._getUpLayer(upc,outc,s,isTop)
             
             return UnetBlock(down,up,subblock)
         
@@ -492,6 +491,9 @@ class Unet(nn.Module):
             return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,self.numResUnits,self.instanceNorm,self.dropout)
         else:
             return Convolution2D(inChannels,outChannels,strides,self.kernelSize,self.instanceNorm,self.dropout)
+        
+    def _getBottomLayer(self,inChannels,outChannels):
+        return self._getDownLayer(inChannels,outChannels,1,False)
     
     def _getUpLayer(self,inChannels,outChannels,strides,isTop):
         if self.numResUnits>0:
@@ -521,14 +523,14 @@ if __name__=='__main__':
 #    print(b1(torch.zeros(22,5,16,16)).shape)
 #    print(b2(torch.zeros(22,3,16,16)).shape)
     
-#    unet=Unet(1,3,[5,10,15],[2,2,1])
-#    print(unet)
-#    print(unet(torch.zeros((2,1,16,16)))[0].shape)
+    unet=Unet(1,3,[5,10,15,20],[2,2,2,2])
+    print(unet)
+    print(unet(torch.zeros((2,1,16,16)))[0].shape)
     
     
-    t=torch.rand((10,1,256,256))
-    a=AutoEncoder(1,1,[32, 64, 128],[1,2,2],5,3,0,0)
-    print(t.shape,a(t)[0].shape)
+#    t=torch.rand((10,1,256,256))
+#    a=AutoEncoder(1,1,[32, 64, 128],[1,2,2],5,3,0,0)
+#    print(t.shape,a(t)[0].shape)
     
 #    d=Discriminator((256,256,1),(8,16,32),(2,2,2),3,0,lastAct=None)
 #    print(t.shape,d(t)[0].shape)
