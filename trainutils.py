@@ -491,6 +491,9 @@ class JupyterThreadMonitor(threading.Thread):
         self.fig=None
         title='Train Values Step '
         
+        while self.isRunning and self.is_alive() and self.step<2:
+            time.sleep(0.1)
+        
         while self.isRunning and self.is_alive() and not doOnce:
             with self.lock:
                 self.fig,ax=plotGraphImages('%s%i'%(title,self.step,),self.graphVals,self.imageVals,fig=self.fig)

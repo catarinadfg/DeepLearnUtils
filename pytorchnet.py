@@ -521,14 +521,17 @@ if __name__=='__main__':
 #    print(b1(torch.zeros(22,5,16,16)).shape)
 #    print(b2(torch.zeros(22,3,16,16)).shape)
     
-    unet=Unet(1,3,[5,10,15],[2,2,1])
-    print(unet)
-    print(unet(torch.zeros((2,1,16,16)))[0].shape)
+#    unet=Unet(1,3,[5,10,15],[2,2,1])
+#    print(unet)
+#    print(unet(torch.zeros((2,1,16,16)))[0].shape)
     
     
-#    t=torch.rand((10,1,256,256))
-#    a=AutoEncoder(1,1,[2,4,8],[2,2,2],4,0)
-#    print(t.shape,a(t)[0].shape)
+    t=torch.rand((10,1,256,256))
+    a=AutoEncoder(1,1,[32, 64, 128],[1,2,2],5,3,0,0)
+    print(t.shape,a(t)[0].shape)
+    
+#    d=Discriminator((256,256,1),(8,16,32),(2,2,2),3,0,lastAct=None)
+#    print(t.shape,d(t)[0].shape)
     
 #    t=torch.rand((10,1,32,32))
 #    print(t.shape,ConvTranspose2D(1,1,2,2)(t).shape)
