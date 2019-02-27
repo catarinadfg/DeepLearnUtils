@@ -60,25 +60,38 @@ def iouMetric(a,b,smooth=1e-5):
     return 1.0-(inter.sum()+smooth)/(union.sum()+smooth)
 
 
-def getNvidiaInfo(proc='nvidia-smi'):
-    '''
-    Get name, nemory usage, and loads on GPUs using the program "nvidia-smi". The value `proc' should be the path to the
-    program, which must be absolute if it isn't on the path. The return value is a dictionary with a list of GPU names
-    keyed to "names", a list of per-GPU memory use values in MiB keyed to "memused", a list of total memory keyed to 
-    "memtotal", and a list of percentage compute loads keyed to "loads".
-    '''
-    result=str(subprocess.check_output(proc))
+try:
+    import gpustat
+    def getNvidiaInfo(_=None):
+        stat=gpustat.new_query()
     
-    names=re.findall(gpunames,result)
-    load=re.findall(gpuload,result)
-    mem=re.findall(gpumem,result)
-    
-    return dict(
-        names=[m.strip() for m in names],
-        memused=[int(m[0]) for m in mem],
-        memtotal=[int(m[1]) for m in mem],
-        loads=[int(l) for l in load]
-    )    
+        return dict(
+            names=[g.name for g in stat.gpus],
+            memused=[g.memory_used for g in stat.gpus],
+            memtotal=[g.memory_total for g in stat.gpus],
+            loads=[g.utilization for g in stat.gpus]
+        )
+        
+except ImportError:
+    def getNvidiaInfo(proc='nvidia-smi'):
+        '''
+        Get name, nemory usage, and loads on GPUs using the program "nvidia-smi". The value `proc' should be the path to the
+        program, which must be absolute if it isn't on the path. The return value is a dictionary with a list of GPU names
+        keyed to "names", a list of per-GPU memory use values in MiB keyed to "memused", a list of total memory keyed to 
+        "memtotal", and a list of percentage compute loads keyed to "loads".
+        '''
+        result=str(subprocess.check_output(proc))
+        
+        names=re.findall(gpunames,result)
+        load=re.findall(gpuload,result)
+        mem=re.findall(gpumem,result)
+        
+        return dict(
+            names=[m.strip() for m in names],
+            memused=[int(m[0]) for m in mem],
+            memtotal=[int(m[1]) for m in mem],
+            loads=[int(l) for l in load]
+        )    
     
 
 def getMemInfo(src='/proc/meminfo'):
@@ -227,6 +240,22 @@ def copypasteArrays(src,dest,srccenter,destcenter,dims):
             destslices[i]=slice(dc-d1,dc+d2)
         
     return tuple(srcslices), tuple(destslices)
+
+
+def resizeCenter(img,*resizeDims):
+    '''
+    Resize `img' by cropping or expanding the image from the center. The `resizeDims' values are the output dimensions
+    (or None to use original dimension of `img'). If a dimension is smaller than that of `img' then the result will be
+    cropped and if larger padded with zeros, in both cases this is done relative to the center of `img'. The result is
+    a new image with the specified dimensions and values from `img' copied into its center.
+    '''
+    resizeDims=tuple(resizeDims[i] or img.shape[i] for i in range(len(resizeDims)))
+    
+    dest=np.zeros(resizeDims,img.dtype)
+    srcslices,destslices=copypasteArrays(img,dest,np.asarray(img.shape)//2,np.asarray(dest.shape)//2,resizeDims)
+    dest[destslices]=img[srcslices]
+    
+    return dest
 
 
 def flatten4DVolume(im):
@@ -462,6 +491,9 @@ class JupyterThreadMonitor(threading.Thread):
         self.fig=None
         title='Train Values Step '
         
+        while self.isRunning and self.is_alive() and self.step<2:
+            time.sleep(0.1)
+        
         while self.isRunning and self.is_alive() and not doOnce:
             with self.lock:
                 self.fig,ax=plotGraphImages('%s%i'%(title,self.step,),self.graphVals,self.imageVals,fig=self.fig)
@@ -498,6 +530,23 @@ if __name__=='__main__':
 #    for cpu,load in getCpuInfo().items():
 #        print(cpu,load)
 
-    plt.rcParams['figure.figsize']=[6,2]
-    ax=plotSystemInfo()
+#    plt.rcParams['figure.figsize']=[6,2]
+#    ax=plotSystemInfo()
     
+    src=np.random.randint(0,10,(6,6))
+    
+    print(src)
+    
+#    print(cropCenter(src,3,3))
+#    print(cropCenter(src,10,10))
+#    print(cropCenter(src,10,3))
+#    
+#    dest=np.zeros((10,4))
+#    
+#    srcslices,destslices=copypasteArrays(src,dest,np.asarray(src.shape)//2,np.asarray(dest.shape)//2,(4,5))
+#    dest[destslices]=src[srcslices]
+#    print(dest)
+    
+    print(resizeCenter(src,10,10))
+    print(resizeCenter(src,4,4))
+    print(resizeCenter(src,4,10))

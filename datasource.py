@@ -3,37 +3,22 @@ from __future__ import division, print_function
 import threading
 import multiprocessing as mp
 import platform
+import queue
 from multiprocessing import sharedctypes
-from contextlib import contextmanager
-
-try:
-    import queue
-except:
-    import Queue as queue
+from contextlib import contextmanager, ExitStack
 
 import numpy as np
 
 
-def toShared(arrays):
+def toShared(array):
     '''Convert the given Numpy array to a shared ctypes object.'''
-    if isinstance(arrays,tuple):
-        out=[]
-        for arr in arrays:
-            carr=np.ctypeslib.as_ctypes(arr)
-            out.append(sharedctypes.RawArray(carr._type_, carr))
-            
-        return tuple(out)
-    else:
-        carr=np.ctypeslib.as_ctypes(arrays)
-        return sharedctypes.RawArray(carr._type_, carr)
+    carr=np.ctypeslib.as_ctypes(array)
+    return sharedctypes.RawArray(carr._type_, carr)
 
 
-def fromShared(arrays):
+def fromShared(array):
     '''Map the given ctypes object to a Numpy array, this is expected to be a shared object from the parent.'''
-    if isinstance(arrays,tuple):
-        return tuple(np.ctypeslib.as_array(arr) for arr in arrays)
-    else:
-        return np.ctypeslib.as_array(arrays)
+    return np.ctypeslib.as_array(array)
         
         
 def initProc(inArrays_,augs_,augments_):
@@ -41,8 +26,8 @@ def initProc(inArrays_,augs_,augments_):
     global inArrays
     global augs
     global augments
-    inArrays=fromShared(inArrays_)
-    augs=fromShared(augs_)
+    inArrays=tuple(map(fromShared,inArrays_))
+    augs=tuple(map(fromShared,augs_))
     augments=augments_
     
     
@@ -74,6 +59,9 @@ class DataSource(object):
             chosenInds=np.random.choice(self.arrays[0].shape[0],batchSize,p=selectProbs)
                 
         return tuple(a[chosenInds] for a in self.arrays)
+    
+    def stop(self,isThreaded):
+        pass
                 
     def getRandomBatch(self,batchSize):
         '''Call the generator callable with the given `batchSize' value with self.selectProb as the second argument.'''
@@ -101,6 +89,21 @@ class DataSource(object):
                 aug[i]=out
                 
     @contextmanager
+    def localBatchGen(self,batchSize):
+        '''Yields a callable object which produces `batchSize' batches generated in the calling thread.'''
+        inArrays=self.getIndexBatch([0])
+        augTest=self.getAugmentedArrays([a[0] for a in inArrays])
+        
+        augs=tuple(np.zeros((batchSize,)+a.shape,a.dtype) for a in augTest)
+        
+        def _getBatch():
+            batch=self.getRandomBatch(batchSize)
+            self.applyAugments(batch,augs,list(range(batchSize)))
+            return augs
+        
+        yield _getBatch
+                
+    @contextmanager
     def threadBatchGen(self,batchSize,numThreads=None):
         '''Yields a callable object which produces `batchSize' batches generated in `numThreads' threads.'''
         numThreads=min(batchSize,numThreads or mp.cpu_count())
@@ -108,10 +111,8 @@ class DataSource(object):
         isRunning=True
         batchQueue=queue.Queue(1)
         
-        inArrays=self.getIndexBatch([0])
-        augTest=self.getAugmentedArrays([a[0] for a in inArrays])
-        
-        augs=tuple(np.zeros((batchSize,)+a.shape,a.dtype) for a in augTest)
+        with self.localBatchGen(batchSize) as gen:
+            augs=gen()
         
         def _batchThread():
             while isRunning:
@@ -126,7 +127,7 @@ class DataSource(object):
                 for t in threads:
                     t.join()
                     
-                batchQueue.put(tuple(a.copy() for a in augs))
+                batchQueue.put(tuple(a.copy() for a in augs)) # copy to prevent overwriting arrays before they're used
                 
         batchThread=threading.Thread(target=_batchThread)
         batchThread.start()
@@ -135,8 +136,9 @@ class DataSource(object):
             yield batchQueue.get
         finally:
             isRunning=False
+            self.stop(True)
             try:
-                batchQueue.get(False) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
+                batchQueue.get(True) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
             except queue.Empty:
                 pass
             
@@ -150,12 +152,10 @@ class DataSource(object):
         isRunning=True
         batchQueue=mp.Queue(1)
         
-        inArrays=self.getRandomBatch(batchSize)
-        augTest=self.getAugmentedArrays([a[0] for a in inArrays])
+        with self.localBatchGen(batchSize) as gen:
+            augs=tuple(map(toShared,gen()))
         
-        augs=tuple(toShared(np.zeros((batchSize,)+a.shape,a.dtype)) for a in augTest)
-        
-        inArrays=tuple(map(toShared,inArrays))
+        inArrays=tuple(map(toShared,self.getRandomBatch(batchSize)))
         
         maugs=self.augments
         initargs=(inArrays,augs,maugs)
@@ -195,8 +195,9 @@ class DataSource(object):
             yield _get
         finally:
             isRunning=False
+            self.stop(False)
             try:
-                batchQueue.get(False) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
+                batchQueue.get(True) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
             except queue.Empty:
                 pass
         
@@ -204,7 +205,7 @@ class DataSource(object):
 def randomDataSource(shape,augments=[],dtype=np.float32):
     '''
     Returns a DataSource producing batches of `shape'-sized standard normal random arrays of type `dtype'. The `augments'
-    list of augmentations is pass to the DataSource object when constructed. The input and output are the same array.
+    list of augmentations is pass to the DataSource object's constructor. Each batch contains the same array given twice.
     '''
     def randData(batchSize=None,selectProbs=None,chosenInds=None):
         if chosenInds: # there are no arrays to index from so use the list size as batchSize instead
@@ -236,27 +237,27 @@ class BufferDataSource(DataSource):
             
     def bufferSize(self):
         return 0 if not self.arrays else self.arrays[0].shape[0]
-        
-        
+
+    
 class MergeDataSource(DataSource):
-    def __init__(self,src1,src2,numThreads=None,augments=[]):
-        self.src1=src1
-        self.src2=src2
+    def __init__(self,*srcs,numThreads=None,augments=[]):
+        self.srcs=srcs
         self.batchSize=0
         self.gen=None
         self.numThreads=numThreads
         
         DataSource.__init__(self,dataGen=self._dataGen,augments=augments)
-        
+    
+    def stop(self,isThreaded):
+        self.gen=None
+            
     def _setBatchSize(self,batchSize):
         def yieldData():
-            with self.src1.threadBatchGen(self.batchSize,self.numThreads) as gen1: 
-                with self.src2.threadBatchGen(self.batchSize,self.numThreads) as gen2:
-                    while True:
-                        d1=gen1()
-                        d2=gen2()
-                        yield d1+d2
-                            
+            with ExitStack() as stack:
+                gens=[stack.enter_context(s.threadBatchGen(self.batchSize,self.numThreads)) for s in self.srcs]
+                while True:
+                    yield sum([g() for g in gens],())
+                    
         if self.batchSize!=batchSize:
             self.batchSize=batchSize
             self.gen=yieldData()
@@ -266,10 +267,66 @@ class MergeDataSource(DataSource):
             batchSize=len(chosenInds)
             
         self._setBatchSize(batchSize)
-        
         return next(self.gen) 
         
 
+class FileDataSource(DataSource):
+    def __init__(self,*filelists,maxSize=100*(2**20), selectProbs=None,augments=[]):
+        assert all(len(f)==len(filelists[0]) for f in filelists), "All members of `filelists' must be the same length"
+        
+        import imageio
+        self.iio=imageio
+        import PIL
+        self.image=PIL.Image
+        
+        self.imageCache={}
+        self.currentSize=0
+        self.maxSize=maxSize
+        super().__init__(*list(map(np.asarray,filelists)),dataGen=self._dataGen,selectProbs=selectProbs,augments=augments)
+        
+    def loadFile(self,path):
+#        return self.iio.imread(path)
+        return np.asarray(self.image.open(path)).copy()
+        
+    def _getCachedFile(self,path):
+        if path not in self.imageCache:
+            im=self.loadFile(path)
+            self.currentSize+=im.nbytes
+            self.imageCache[path]=im
+            
+        return self.imageCache[path]
+
+    def _removeFiles(self):
+        if self.maxSize<=0:
+            return 
+        
+        candidates=list(self.imageCache)        
+        while len(candidates)>0 and self.currentSize>self.maxSize:
+            c=candidates.pop(0)
+            im=self.imageCache[c]
+            self.currentSize-=im.nbytes
+            del self.imageCache[c]
+        
+    def _dataGen(self,batchSize=None,selectProbs=None,chosenInds=None):
+        if chosenInds is None:
+            chosenInds=np.random.choice(self.arrays[0].shape[0],batchSize,p=selectProbs)
+            
+        outs=[]
+        for arr in self.arrays:
+            chosen=arr[chosenInds]
+            im=self._getCachedFile(chosen[0])
+            out=np.zeros((len(chosenInds),)+im.shape,im.dtype)
+            
+            for i,c in enumerate(chosen):
+                out[i]=self._getCachedFile(c)
+                
+            outs.append(out)
+            
+        self._removeFiles()
+        
+        return tuple(outs)
+    
+    
 if __name__=='__main__':
     def testAug(im,cat):
         return im[0],cat
@@ -289,8 +346,15 @@ if __name__=='__main__':
         batch=gen()
         print([a.shape for a in batch])
     
-    bsrc.clearBuffer()
+#     bsrc.clearBuffer()
         
-    with bsrc.processBatchGen(4) as gen:
+#     with bsrc.processBatchGen(4) as gen:
+#         batch=gen()
+#         print([a.shape for a in batch])
+
+    merge=MergeDataSource([src])
+    with merge.processBatchGen(4) as gen:
         batch=gen()
-        print([a.shape for a in batch])
+        print([b.shape for b in batch])
+        
+    print('Done')
