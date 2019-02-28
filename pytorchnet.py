@@ -411,7 +411,8 @@ class AutoEncoder(nn.Module):
         
     def forward(self,x):
         x=self.encode(x)
-        x=self.intermediate(x)
+        if self.intermediate is not None:
+            x=self.intermediate(x)
         x=self.decode(x)
         return (x,)
     

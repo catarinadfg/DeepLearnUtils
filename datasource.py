@@ -251,7 +251,7 @@ class MergeDataSource(DataSource):
         
         DataSource.__init__(self,dataGen=self._dataGen,augments=augments)
     
-    def stop(self,isThreaded):
+    def stop(self,getType):
         self.gen=None
             
     def _setBatchSize(self,batchSize):
@@ -261,7 +261,7 @@ class MergeDataSource(DataSource):
                 while True:
                     yield sum([g() for g in gens],())
                     
-        if self.batchSize!=batchSize:
+        if self.gen is None or self.batchSize!=batchSize:
             self.batchSize=batchSize
             self.gen=yieldData()
         
