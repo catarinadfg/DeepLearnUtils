@@ -220,13 +220,12 @@ class ResidualUnit2D(nn.Module):
             sstrides=1
             
         # apply this convolution to the input to change the number of output channels and output size to match that coming from self.conv
-        if np.prod(strides)!=1:
+        if np.prod(strides)!=1 or inChannels!=outChannels:
             self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=kernelSize,stride=strides,padding=padding,bias=bias)
         
     def forward(self,x):
         res=self.residual(x) # create the additive residual from x
         cx=self.conv(x) # apply x to sequence of operations
-        
         return cx+res # add the residual to the output
 
 
@@ -322,7 +321,7 @@ class Generator(nn.Module):
 
 class AutoEncoder(nn.Module):
     def __init__(self,inChannels,outChannels,channels,strides,kernelSize=3,upKernelSize=3,numResUnits=0,numInterUnits=0,instanceNorm=True,dropout=0):
-        super(AutoEncoder,self).__init__()
+        super().__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
         self.outChannels=outChannels
@@ -335,27 +334,65 @@ class AutoEncoder(nn.Module):
         self.dropout=dropout
         self.numInterUnits=numInterUnits
         
-        self.encode=nn.Sequential()
-        self.intermediate=nn.Sequential()
-        self.decode=nn.Sequential()
+#        self.encode=nn.Sequential()
+#        self.intermediate=nn.Sequential()
+#        self.decode=nn.Sequential()
         
-        echannel=inChannels
+#        echannel=inChannels
+#        
+#        # encoding stage
+#        for i,(c,s) in enumerate(zip(channels,strides)):
+#            layer=self._getEncodeLayer(echannel,c,s)
+#            self.encode.add_module('encode_%i'%i,layer)
+#            echannel=c
+#            
+#        # intermediate residual units on the bottom path
+#        for i in range(numInterUnits):
+#            self.intermediate.add_module('inter_%i'%i,ResidualUnit2D(echannel,echannel,1,kernelSize,self.numResUnits,instanceNorm,dropout))
+#            
+#        # decoding stage
+#        for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[outChannels],strides[::-1])):
+#            layer=self._getDecodeLayer(echannel,c,s,i==(len(strides)-1))
+#            self.decode.add_module('decode_%i'%i,layer)
+#            echannel=c
         
-        # encoding stage
+        layerChannels=inChannels
+        self.encode,layerChannels=self._getEncodeModule(layerChannels,channels,strides)
+        self.intermediate,layerChannels=self._getIntermediateModule(layerChannels,numInterUnits)
+        self.decode,_=self._getDecodeModule(layerChannels,list(channels[-2::-1])+[outChannels],strides[::-1])
+            
+    def _getEncodeModule(self,inChannels,channels,strides):
+        encode=nn.Sequential()
+        layerChannels=inChannels
+        
         for i,(c,s) in enumerate(zip(channels,strides)):
-            layer=self._getEncodeLayer(echannel,c,s)
-            self.encode.add_module('encode_%i'%i,layer)
-            echannel=c
+            layer=self._getEncodeLayer(layerChannels,c,s)
+            encode.add_module('encode_%i'%i,layer)
+            layerChannels=c
             
-        # intermediate residual units on the bottom path
-        for i in range(numInterUnits):
-            self.intermediate.add_module('inter_%i'%i,ResidualUnit2D(echannel,echannel,1,kernelSize,self.numResUnits,instanceNorm,dropout))
+        return encode,layerChannels
+    
+    def _getIntermediateModule(self,inChannels,numInterUnits):
+        intermediate=None
+        if numInterUnits>0:
+            intermediate=nn.Sequential()
             
-        # decoding stage
-        for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[outChannels],strides[::-1])):
-            layer=self._getDecodeLayer(echannel,c,s,i==(len(strides)-1))
-            self.decode.add_module('decode_%i'%i,layer)
-            echannel=c
+            for i in range(numInterUnits):
+                unit=ResidualUnit2D(inChannels,inChannels,1,self.kernelSize,self.numResUnits,self.instanceNorm,self.dropout)
+                intermediate.add_module('inter_%i'%i,unit)
+
+        return intermediate,inChannels
+    
+    def _getDecodeModule(self,inChannels,channels,strides):
+        decode=nn.Sequential()
+        layerChannels=inChannels
+        
+        for i,(c,s) in enumerate(zip(channels,strides)):
+            layer=self._getDecodeLayer(layerChannels,c,s,i==(len(strides)-1))
+            decode.add_module('decode_%i'%i,layer)
+            layerChannels=c
+            
+        return decode,layerChannels
 
     def _getEncodeLayer(self,inChannels,outChannels,strides):
         if self.numResUnits>0:
