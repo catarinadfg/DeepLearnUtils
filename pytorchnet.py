@@ -334,10 +334,10 @@ class AutoEncoder(nn.Module):
         self.dropout=dropout
         self.numInterUnits=numInterUnits
         
-        layerChannels=inChannels
-        self.encode,layerChannels=self._getEncodeModule(layerChannels,channels,strides)
-        self.intermediate,layerChannels=self._getIntermediateModule(layerChannels,numInterUnits)
-        self.decode,_=self._getDecodeModule(layerChannels,list(channels[-2::-1])+[outChannels],strides[::-1])
+        self.encodedChannels=inChannels
+        self.encode,self.encodedChannels=self._getEncodeModule(self.encodedChannels,channels,strides)
+        self.intermediate,self.encodedChannels=self._getIntermediateModule(self.encodedChannels,numInterUnits)
+        self.decode,_=self._getDecodeModule(self.encodedChannels,list(channels[-2::-1])+[outChannels],strides[::-1])
             
     def _getEncodeModule(self,inChannels,channels,strides):
         encode=nn.Sequential()
@@ -402,36 +402,11 @@ class VarAutoEncoder(AutoEncoder):
         self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
         
         super().__init__(inChannels,outChannels,channels,strides,kernelSize,upKernelSize,numResUnits, numInterUnits, instanceNorm, dropout)
-        
-#         self.encodeModules=OrderedDict()
-#         self.decodeModules=OrderedDict()
-#         echannel=self.inChannels
-        
-#         # encoding stage
-#         for i,(c,s) in enumerate(zip(channels,strides)):
-#             self.encodeModules['encode_%i'%i]=ResidualUnit2D(echannel,c,s,kernelSize,numSubunits,instanceNorm,dropout)
-#             echannel=c
-#             self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
-            
-#         self.encodes=nn.Sequential(self.encodeModules)
-        
-#         linearSize=int(np.product(self.finalSize))*echannel
-#         self.mu=nn.Linear(linearSize,self.latentSize)
-#         self.logvar=nn.Linear(linearSize,self.latentSize)
-#         self.decodeL=nn.Linear(self.latentSize,linearSize)
-            
-#         # decoding stage
-#         for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[self.inChannels],strides[::-1])):
-#             self.decodeModules['up_%i'%i]=nn.ConvTranspose2d(echannel,echannel,kernelSize,s,1,s-1)
-#             self.decodeModules['decode_%i'%i]=ResidualUnit2D(echannel,c,1,kernelSize,numSubunits,instanceNorm,dropout)
-#             echannel=c
-
-#         self.decodes=nn.Sequential(self.decodeModules)
 
         for s in strides:
             self.finalSize=calculateOutShape(self.finalSize,self.kernelSize,s,samePadding(self.kernelSize))
 
-        linearSize=int(np.product(self.finalSize))*echannel
+        linearSize=int(np.product(self.finalSize))*self.encodedChannels
         self.mu=nn.Linear(linearSize,self.latentSize)
         self.logvar=nn.Linear(linearSize,self.latentSize)
         self.decodeL=nn.Linear(self.latentSize,linearSize)
@@ -448,7 +423,7 @@ class VarAutoEncoder(AutoEncoder):
     def decodeForward(self,z):
         x=F.relu(self.decodeL(z))
         x=x.view(x.shape[0],self.channels[-1],self.finalSize[0],self.finalSize[1])
-        x=self.decodes(x)
+        x=self.decode(x)
         x=torch.sigmoid(x)
         return x
         
@@ -458,9 +433,9 @@ class VarAutoEncoder(AutoEncoder):
         return eps.mul(std).add_(mu)
         
     def forward(self, x):
-        mu, logvar = self.encode(x)
+        mu, logvar = self.encodeForward(x)
         z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar, z
+        return self.decodeForward(z), mu, logvar, z
         
         
 class UnetBlock(nn.Module):
