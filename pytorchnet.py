@@ -206,6 +206,7 @@ class ResidualUnit2D(nn.Module):
         self.inChannels=inChannels
         self.outChannels=outChannels
         self.conv=nn.Sequential()
+        self.residual=lambda i:i
         
         padding=samePadding(kernelSize)
         schannels=inChannels
@@ -213,12 +214,14 @@ class ResidualUnit2D(nn.Module):
         
         for su in range(subunits):
             convOnly=lastConvOnly and su==(subunits-1)
-            self.conv.add_module('unit%i'%su,Convolution2D(schannels,outChannels,sstrides,kernelSize,instanceNorm,dropout,bias,convOnly))
+            unit=Convolution2D(schannels,outChannels,sstrides,kernelSize,instanceNorm,dropout,bias,convOnly)
+            self.conv.add_module('unit%i'%su,unit)
             schannels=outChannels # after first loop set the channels and strides to what they should be for subsequent units
             sstrides=1
             
         # apply this convolution to the input to change the number of output channels and output size to match that coming from self.conv
-        self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=kernelSize,stride=strides,padding=padding,bias=bias)
+        if np.prod(strides)!=1:
+            self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=kernelSize,stride=strides,padding=padding,bias=bias)
         
     def forward(self,x):
         res=self.residual(x) # create the additive residual from x
@@ -523,9 +526,9 @@ if __name__=='__main__':
 #    print(b1(torch.zeros(22,5,16,16)).shape)
 #    print(b2(torch.zeros(22,3,16,16)).shape)
     
-    unet=Unet(1,3,[5,10,15,20],[2,2,2,2])
-    print(unet)
-    print(unet(torch.zeros((2,1,16,16)))[0].shape)
+#    unet=Unet(1,3,[5,10,15,20],[2,2,2,2])
+#    print(unet)
+#    print(unet(torch.zeros((2,1,16,16)))[0].shape)
     
     
 #    t=torch.rand((10,1,256,256))
@@ -540,4 +543,7 @@ if __name__=='__main__':
 #    print(t.shape,ConvTranspose2D(1,1,2,3)(t).shape)
 #    print(t.shape,ConvTranspose2D(1,1,2,4)(t).shape)
 #    print(t.shape,ConvTranspose2D(1,1,2,5)(t).shape)
+    
+    r=ResidualUnit2D(1,2,1)
+    print(r(torch.rand(10,1,32,32)).shape)
     

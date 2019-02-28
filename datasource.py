@@ -60,8 +60,8 @@ class DataSource(object):
                 
         return tuple(a[chosenInds] for a in self.arrays)
     
-    def stop(self,isThreaded):
-        pass
+    def stop(self,genType):
+        assert genType in ('local','thread','process')
                 
     def getRandomBatch(self,batchSize):
         '''Call the generator callable with the given `batchSize' value with self.selectProb as the second argument.'''
@@ -101,7 +101,10 @@ class DataSource(object):
             self.applyAugments(batch,augs,list(range(batchSize)))
             return augs
         
-        yield _getBatch
+        try:
+            yield _getBatch
+        finally:
+            self.stop('local')
                 
     @contextmanager
     def threadBatchGen(self,batchSize,numThreads=None):
@@ -136,7 +139,7 @@ class DataSource(object):
             yield batchQueue.get
         finally:
             isRunning=False
-            self.stop(True)
+            self.stop('thread')
             try:
                 batchQueue.get(True) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
             except queue.Empty:
@@ -195,7 +198,7 @@ class DataSource(object):
             yield _get
         finally:
             isRunning=False
-            self.stop(False)
+            self.stop('process')
             try:
                 batchQueue.get(True) # there may be a batch waiting on the queue, batchThread is stuck until this is removed
             except queue.Empty:
