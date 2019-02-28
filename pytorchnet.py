@@ -320,7 +320,7 @@ class Generator(nn.Module):
     
 
 class AutoEncoder(nn.Module):
-    def __init__(self,inChannels,outChannels,channels,strides,kernelSize=3,upKernelSize=3,numResUnits=0,numInterUnits=0,instanceNorm=True,dropout=0):
+    def __init__(self,inChannels,outChannels,channels,strides,kernelSize=3,upKernelSize=3,numResUnits=0, numInterUnits=0, instanceNorm=True, dropout=0):
         super().__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
@@ -333,28 +333,6 @@ class AutoEncoder(nn.Module):
         self.instanceNorm=instanceNorm
         self.dropout=dropout
         self.numInterUnits=numInterUnits
-        
-#        self.encode=nn.Sequential()
-#        self.intermediate=nn.Sequential()
-#        self.decode=nn.Sequential()
-        
-#        echannel=inChannels
-#        
-#        # encoding stage
-#        for i,(c,s) in enumerate(zip(channels,strides)):
-#            layer=self._getEncodeLayer(echannel,c,s)
-#            self.encode.add_module('encode_%i'%i,layer)
-#            echannel=c
-#            
-#        # intermediate residual units on the bottom path
-#        for i in range(numInterUnits):
-#            self.intermediate.add_module('inter_%i'%i,ResidualUnit2D(echannel,echannel,1,kernelSize,self.numResUnits,instanceNorm,dropout))
-#            
-#        # decoding stage
-#        for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[outChannels],strides[::-1])):
-#            layer=self._getDecodeLayer(echannel,c,s,i==(len(strides)-1))
-#            self.decode.add_module('decode_%i'%i,layer)
-#            echannel=c
         
         layerChannels=inChannels
         self.encode,layerChannels=self._getEncodeModule(layerChannels,channels,strides)
@@ -417,53 +395,57 @@ class AutoEncoder(nn.Module):
         return (x,)
     
     
-class VarAutoEncoder(nn.Module):
-    def __init__(self,inShape,latentSize,channels,strides,kernelSize=3,numSubunits=2,instanceNorm=True,dropout=0):
-        super(VarAutoEncoder,self).__init__()
-        assert len(channels)==len(strides)
-        self.inHeight,self.inWidth,self.inChannels=inShape
+class VarAutoEncoder(AutoEncoder):
+    def __init__(self,inShape,outChannels,latentSize,channels,strides,kernelSize=3,upKernelSize=3,numResUnits=0, numInterUnits=0, instanceNorm=True, dropout=0):
+        self.inHeight,self.inWidth,inChannels=inShape
         self.latentSize=latentSize
-        self.channels=channels
-        self.strides=strides
-        self.kernelSize=kernelSize
-        self.numSubunits=numSubunits
-        self.instanceNorm=instanceNorm
-        
         self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
         
-        self.encodeModules=OrderedDict()
-        self.decodeModules=OrderedDict()
-        echannel=self.inChannels
+        super().__init__(inChannels,outChannels,channels,strides,kernelSize,upKernelSize,numResUnits, numInterUnits, instanceNorm, dropout)
         
-        # encoding stage
-        for i,(c,s) in enumerate(zip(channels,strides)):
-            self.encodeModules['encode_%i'%i]=ResidualUnit2D(echannel,c,s,kernelSize,numSubunits,instanceNorm,dropout)
-            echannel=c
-            self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
+#         self.encodeModules=OrderedDict()
+#         self.decodeModules=OrderedDict()
+#         echannel=self.inChannels
+        
+#         # encoding stage
+#         for i,(c,s) in enumerate(zip(channels,strides)):
+#             self.encodeModules['encode_%i'%i]=ResidualUnit2D(echannel,c,s,kernelSize,numSubunits,instanceNorm,dropout)
+#             echannel=c
+#             self.finalSize=calculateOutShape(self.finalSize,kernelSize,s,samePadding(kernelSize))
             
-        self.encodes=nn.Sequential(self.encodeModules)
+#         self.encodes=nn.Sequential(self.encodeModules)
         
+#         linearSize=int(np.product(self.finalSize))*echannel
+#         self.mu=nn.Linear(linearSize,self.latentSize)
+#         self.logvar=nn.Linear(linearSize,self.latentSize)
+#         self.decodeL=nn.Linear(self.latentSize,linearSize)
+            
+#         # decoding stage
+#         for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[self.inChannels],strides[::-1])):
+#             self.decodeModules['up_%i'%i]=nn.ConvTranspose2d(echannel,echannel,kernelSize,s,1,s-1)
+#             self.decodeModules['decode_%i'%i]=ResidualUnit2D(echannel,c,1,kernelSize,numSubunits,instanceNorm,dropout)
+#             echannel=c
+
+#         self.decodes=nn.Sequential(self.decodeModules)
+
+        for s in strides:
+            self.finalSize=calculateOutShape(self.finalSize,self.kernelSize,s,samePadding(self.kernelSize))
+
         linearSize=int(np.product(self.finalSize))*echannel
         self.mu=nn.Linear(linearSize,self.latentSize)
         self.logvar=nn.Linear(linearSize,self.latentSize)
         self.decodeL=nn.Linear(self.latentSize,linearSize)
-            
-        # decoding stage
-        for i,(c,s) in enumerate(zip(list(channels[-2::-1])+[self.inChannels],strides[::-1])):
-            self.decodeModules['up_%i'%i]=nn.ConvTranspose2d(echannel,echannel,kernelSize,s,1,s-1)
-            self.decodeModules['decode_%i'%i]=ResidualUnit2D(echannel,c,1,kernelSize,numSubunits,instanceNorm,dropout)
-            echannel=c
-
-        self.decodes=nn.Sequential(self.decodeModules)
         
-    def encode(self,x):
-        x=self.encodes(x)
+    def encodeForward(self,x):
+        x=self.encode(x)
+        if self.intermediate is not None:
+            x=self.intermediate(x)
         x=x.view(x.shape[0],-1)
         mu=self.mu(x)
         logvar=self.logvar(x)
         return mu,logvar
         
-    def decode(self,z):
+    def decodeForward(self,z):
         x=F.relu(self.decodeL(z))
         x=x.view(x.shape[0],self.channels[-1],self.finalSize[0],self.finalSize[1])
         x=self.decodes(x)
