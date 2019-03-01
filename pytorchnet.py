@@ -229,6 +229,24 @@ class ResidualUnit2D(nn.Module):
         return cx+res # add the residual to the output
 
 
+class SpatialBroadcast2D(nn.Module):
+    def __init__(self,height,width):
+        super().__init__()
+        self.height=height
+        self.width=width
+        
+    def forward(self,x):
+        latentSize=x.shape[0]
+        vol=torch.zeros((self.height,self.width,latentSize+2))
+        
+        wgrid,hgrid=np.meshgrid(np.linspace(0,self.width-1,self.width),np.linspace(0,self.height-1,self.height))
+        vol[:,:,:-2]=x.repeat((self.height,self.width)).reshape((self.height,self.width,latentSize))
+        vol[:,:,-2]=torch.tensor(hgrid)
+        vol[:,:,-1]=torch.tensor(wgrid)
+        
+        return vol.to(x.device)
+    
+
 class Classifier(nn.Module):
     def __init__(self,inShape,classes,channels,strides,kernelSize=3,numResUnits=2,instanceNorm=True,dropout=0,bias=True):
         super(Classifier,self).__init__()
@@ -539,6 +557,11 @@ if __name__=='__main__':
 #    print(t.shape,ConvTranspose2D(1,1,2,4)(t).shape)
 #    print(t.shape,ConvTranspose2D(1,1,2,5)(t).shape)
     
-    r=ResidualUnit2D(1,2,1)
-    print(r(torch.rand(10,1,32,32)).shape)
+#    r=ResidualUnit2D(1,2,1)
+#    print(r(torch.rand(10,1,32,32)).shape)
+    
+    sb=SpatialBroadcast2D(32,35)
+    
+    x=sb(torch.tensor([1,2,3]).cuda())
+    print(x.shape,x[0,0,:],x[10,12,:],x[31,34,:])
     
