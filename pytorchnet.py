@@ -229,36 +229,6 @@ class ResidualUnit2D(nn.Module):
         return cx+res # add the residual to the output
 
 
-class SpatialBroadcast2D(nn.Module):
-    '''
-    Spatial broadcast layer from "Spatial Broadcast Decoder: A Simple Architecture for Learning Disentangled Representations 
-    in VAEs" (https://arxiv.org/abs/1901.07017)
-    '''
-    def __init__(self,height,width,minGrid=-1,maxGrid=1):
-        super().__init__()
-        self.height=height
-        self.width=width
-        self.minGrid=minGrid
-        self.maxGrid=maxGrid
-        
-        wgrid,hgrid=np.meshgrid(np.linspace(minGrid,maxGrid,width),np.linspace(minGrid,maxGrid,height))
-        self.grid=torch.tensor(np.stack([wgrid,hgrid])[np.newaxis,...])
-        
-    def forward(self,x):
-        batchSize=x.shape[0]
-        latentSize=x.shape[1]
-        
-        vol=torch.zeros((batchSize,latentSize+2,self.height,self.width),device=x.device)
-        vol[:,:-2]=x.view((batchSize,latentSize,1,1)).repeat((1,1,self.height,self.width))
-        vol[:,-2:]=self.grid.to(x.device).repeat([batchSize,1,1,1])
-        
-        #for b in range(batchSize):
-        #    xvol=x[b].repeat((self.height,self.width)).view((self.height,self.width,latentSize))
-        #    vol[b,:-2]=xvol.permute(2,0,1)
-        
-        return vol
-    
-
 class Classifier(nn.Module):
     def __init__(self,inShape,classes,channels,strides,kernelSize=3,numResUnits=2,instanceNorm=True,dropout=0,bias=True):
         super(Classifier,self).__init__()
