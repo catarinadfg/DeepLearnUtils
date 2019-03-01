@@ -230,19 +230,28 @@ class ResidualUnit2D(nn.Module):
 
 
 class SpatialBroadcast2D(nn.Module):
-    def __init__(self,height,width):
+    def __init__(self,height,width,minGrid=-2,maxGrid=2):
         super().__init__()
         self.height=height
         self.width=width
+        self.minGrid=minGrid
+        self.maxGrid=maxGrid
         
     def forward(self,x):
-        latentSize=x.shape[0]
-        vol=torch.zeros((self.height,self.width,latentSize+2))
+        batchSize=x.shape[0]
+        latentSize=x.shape[1]
+        vol=torch.zeros((batchSize,latentSize+2,self.height,self.width),device=x.device)
         
-        wgrid,hgrid=np.meshgrid(np.linspace(0,self.width-1,self.width),np.linspace(0,self.height-1,self.height))
-        vol[:,:,:-2]=x.repeat((self.height,self.width)).reshape((self.height,self.width,latentSize))
-        vol[:,:,-2]=torch.tensor(hgrid)
-        vol[:,:,-1]=torch.tensor(wgrid)
+        wgrid,hgrid=np.meshgrid(np.linspace(self.minGrid,self.maxGrid,self.width),np.linspace(self.minGrid,self.maxGrid,self.height))
+        hgrid=torch.tensor(hgrid,device=x.device)
+        wgrid=torch.tensor(wgrid,device=x.device)
+        
+        for b in range(batchSize):
+            xvol=x[b].repeat((self.height,self.width)).view((self.height,self.width,latentSize))
+
+            vol[b,:-2,:,:]=xvol.permute(2,0,1)
+            vol[b, -2,:,:]=hgrid
+            vol[b, -1,:,:]=wgrid
         
         return vol.to(x.device)
     
@@ -562,6 +571,7 @@ if __name__=='__main__':
     
     sb=SpatialBroadcast2D(32,35)
     
-    x=sb(torch.tensor([1,2,3]).cuda())
-    print(x.shape,x[0,0,:],x[10,12,:],x[31,34,:])
+    x=sb(torch.tensor([[1,2,3]]).cuda())
+    print(x.shape)
+    print(x[0,:,0,0],x[0,:,10,12],x[0,:,31,34])
     
