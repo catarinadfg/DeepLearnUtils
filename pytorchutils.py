@@ -208,6 +208,9 @@ class NetworkManager(object):
             self.log('Savedir:',self.savedir)
             self.isRunning=True
             
+            if self.net is not None:
+                self.net.train()
+            
             for s in range(1,steps+1):
                 self.log('Timestep',s,'/',steps)
                 self.step+=1
@@ -254,22 +257,29 @@ class NetworkManager(object):
             losses=[]
             results=[]
             
-            for i in range(0,inputlen,batchSize):
-                self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
-                self.netoutputs=self.netForward()
-                self.lossoutput=self.lossForward()
-                losses.append(self.lossoutput.item())
-                
-                self.evalStep(i,losses[-1],results)
-                # clear stored variables to free graph
-                self.traininputs=None
-                self.netoutputs=None
-                self.lossoutput=None
+            if self.net is not None:
+                self.net.eval()
+            
+            with torch.no_grad():
+                for i in range(0,inputlen,batchSize):
+                    self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
+                    self.netoutputs=self.netForward()
+                    self.lossoutput=self.lossForward()
+                    losses.append(self.lossoutput.item())
+
+                    self.evalStep(i,losses[-1],results)
+                    # clear stored variables to free graph
+                    self.traininputs=None
+                    self.netoutputs=None
+                    self.lossoutput=None
                 
         except Exception as e:
             self.log(e)
             raise
         finally:
+            if self.net is not None:
+                self.net.train()
+                
             self.log('Total time (s): %s'%(time.time()-start))
             self.log('Losses:',losses)
             self.log('===================================Done===================================')
@@ -280,7 +290,7 @@ class NetworkManager(object):
         '''
         Infer results by applying it to batches of size `batchSize' from the input arrays given in `inputs'. This only 
         uses the forward pass of the network to compute output and does not compute loss or use the optimizer:
-            1. Convert each batch slice of arrays in `inputs' to Variables and store all in self.traininputs
+            1. Convert each batch slice of arrays in `inputs' to tensors and store all in self.traininputs
             2. self.netForward() is called and results assigned to self.netoutputs
             3. If self.netoutputs is a list or tuple, each tensor it stores is converted to Numpy and appended to the 
             results list, if a single tensor this is converted then appended
@@ -292,19 +302,27 @@ class NetworkManager(object):
         inputlen=inputs[0].shape[0]
         results=[]
         
-        for i in range(0,inputlen,batchSize):
-            self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
-            self.netoutputs=self.netForward()
-            
-            if isinstance(self.netoutputs,(tuple,list)):
-                results.append(tuple(map(self.toNumpy, self.netoutputs)))
-            else:
-                results.append(self.toNumpy(self.netoutputs))
+        try:
+            if self.net is not None:
+                self.net.eval()
                 
-            self.traininputs=None
-            self.netoutputs=None
-        
-        return results
+            with torch.no_grad():
+                for i in range(0,inputlen,batchSize):
+                    self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
+                    self.netoutputs=self.netForward()
+
+                    if isinstance(self.netoutputs,(tuple,list)):
+                        results.append(tuple(map(self.toNumpy, self.netoutputs)))
+                    else:
+                        results.append(self.toNumpy(self.netoutputs))
+
+                    self.traininputs=None
+                    self.netoutputs=None
+
+            return results
+        finally:
+            if self.net is not None:
+                self.net.train()
     
     
 class SegmentMgr(NetworkManager):

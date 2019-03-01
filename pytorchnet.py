@@ -234,30 +234,29 @@ class SpatialBroadcast2D(nn.Module):
     Spatial broadcast layer from "Spatial Broadcast Decoder: A Simple Architecture for Learning Disentangled Representations 
     in VAEs" (https://arxiv.org/abs/1901.07017)
     '''
-    def __init__(self,height,width,minGrid=-2,maxGrid=2):
+    def __init__(self,height,width,minGrid=-1,maxGrid=1):
         super().__init__()
         self.height=height
         self.width=width
         self.minGrid=minGrid
         self.maxGrid=maxGrid
         
+        wgrid,hgrid=np.meshgrid(np.linspace(minGrid,maxGrid,width),np.linspace(minGrid,maxGrid,height))
+        self.grid=torch.tensor(np.stack([wgrid,hgrid])[np.newaxis,...])
+        
     def forward(self,x):
         batchSize=x.shape[0]
         latentSize=x.shape[1]
+        
         vol=torch.zeros((batchSize,latentSize+2,self.height,self.width),device=x.device)
+        vol[:,:-2]=x.view((batchSize,latentSize,1,1)).repeat((1,1,self.height,self.width))
+        vol[:,-2:]=self.grid.to(x.device).repeat([batchSize,1,1,1])
         
-        wgrid,hgrid=np.meshgrid(np.linspace(self.minGrid,self.maxGrid,self.width),np.linspace(self.minGrid,self.maxGrid,self.height))
-        hgrid=torch.tensor(hgrid,device=x.device)
-        wgrid=torch.tensor(wgrid,device=x.device)
+        #for b in range(batchSize):
+        #    xvol=x[b].repeat((self.height,self.width)).view((self.height,self.width,latentSize))
+        #    vol[b,:-2]=xvol.permute(2,0,1)
         
-        for b in range(batchSize):
-            xvol=x[b].repeat((self.height,self.width)).view((self.height,self.width,latentSize))
-
-            vol[b,:-2,:,:]=xvol.permute(2,0,1)
-            vol[b, -2,:,:]=hgrid
-            vol[b, -1,:,:]=wgrid
-        
-        return vol.to(x.device)
+        return vol
     
 
 class Classifier(nn.Module):
@@ -459,9 +458,12 @@ class VarAutoEncoder(AutoEncoder):
         return x
         
     def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return eps.mul(std).add_(mu)
+        std=torch.exp(0.5*logvar)
+        
+        if self.training: # multiply random noise with std only during training
+            std=torch.randn_like(std).mul(std)
+            
+        return std.add_(mu)
         
     def forward(self, x):
         mu, logvar = self.encodeForward(x)
