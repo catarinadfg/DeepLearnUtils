@@ -230,6 +230,10 @@ class ResidualUnit2D(nn.Module):
 
 
 class SpatialBroadcast2D(nn.Module):
+    '''
+    Spatial broadcast layer from "Spatial Broadcast Decoder: A Simple Architecture for Learning Disentangled Representations 
+    in VAEs" (https://arxiv.org/abs/1901.07017)
+    '''
     def __init__(self,height,width,minGrid=-2,maxGrid=2):
         super().__init__()
         self.height=height
