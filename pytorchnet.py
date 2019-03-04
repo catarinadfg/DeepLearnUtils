@@ -112,8 +112,8 @@ class KLDivLoss(_Loss):
         self.beta=beta
         
     def forward(self,reconx, x, mu, logvar):
-        assert x.min() >= 0. and x.max() <= 1.,'%f -> %f'%(x.min(), x.max() )
-        assert reconx.min() >= 0. and reconx.max() <= 1.,'%f -> %f'%(reconx.min(), reconx.max() )
+        assert x.min() >= 0.0 and x.max() <= 1.0,'%f -> %f'%(x.min(), x.max() )
+        assert reconx.min() >= 0.0 and reconx.max() <= 1.0,'%f -> %f'%(reconx.min(), reconx.max() )
         
         KLD = -0.5 * self.beta * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # KL divergence loss with beta term
         return KLD+self.reconLoss(reconx,x)
@@ -131,8 +131,8 @@ class ThresholdMask(torch.nn.Module):
     
         
 class LinearNet(torch.nn.Module):
-    '''Plain neural network of linear layers using PReLU activation.'''
-    def __init__(self,inChannels,outChannels,hiddenChannels,bias=True):
+    '''Plain neural network of linear layers using dropout and PReLU activation.'''
+    def __init__(self,inChannels,outChannels,hiddenChannels,dropout=0,bias=True):
         '''
         Defines a network accept input with `inChannels' channels, output of `outChannels' channels, and hidden layers 
         with channels given in `hiddenChannels'. If `bias' is True then linear units have a bias term.
@@ -140,6 +140,7 @@ class LinearNet(torch.nn.Module):
         super().__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
+        self.dropout=dropout
         self.hiddenChannels=list(hiddenChannels)
         self.hiddens=torch.nn.Sequential()
         
@@ -153,6 +154,7 @@ class LinearNet(torch.nn.Module):
     def _getLayer(self,inChannels,outChannels,bias):
         return torch.nn.Sequential(
             torch.nn.Linear(inChannels,outChannels,bias),
+            torch.nn.Dropout(self.dropout),
             torch.nn.PReLU()
         )
     
