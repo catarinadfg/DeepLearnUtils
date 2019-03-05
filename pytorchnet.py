@@ -519,7 +519,7 @@ class Unet(nn.Module):
         return x, preds 
     
     
-if __name__=='__main__':
+#if __name__=='__main__':
 #    b1=UnetBlock(nn.Conv2d(5,10,3,2,samePadding(3)),nn.ConvTranspose2d(10,5,3,2,1,1),None)
 #    b2=UnetBlock(nn.Conv2d(3,5,3,2,samePadding(3)),nn.ConvTranspose2d(10,3,3,2,1,1),b1,True)
     
@@ -546,6 +546,4 @@ if __name__=='__main__':
     
 #    r=ResidualUnit2D(1,2,1)
 #    print(r(torch.rand(10,1,32,32)).shape)
-    
-
     
