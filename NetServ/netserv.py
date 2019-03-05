@@ -3,31 +3,38 @@
 
 '''
 A simple Flask-based server for providing neural network inference for images through a HTTP interface. The routes
-/infer/<name> represent networks for applying inference on single images at a time to produce output images. An image
+/inferimg/<name> represent networks for applying inference on single images at a time to produce output images. An image
 in PNG format is POSTed to this address and a PNG is sent back as the response. Other arguments can be passed in the URL.
-The actual operation of the network is defined by callables accepting the input image (2D Numpy array) as its first 
-argument followed by expanded keyword arguments, and returning the resulting image as a 2D array. Input values are those
-stored in the input PNG file and output values should be suitable for storing into the output PNG.
+The actual operation of the network is defined by instances of InferenceContainer accepting the input image (2D/3D Numpy 
+array) through their infer() method followed by expanded keyword arguments, and returning the resulting image as a 2D/3D 
+array. Input values are those stored in the input PNG file and output values should be suitable for storing into the 
+output PNG.
 
 The server is initialized with such inference objects by importing given script files as modules and calling the defined
-function getInferObjects(). This function should return a dictionary relating network names to their inference objects to
-be added to the server. Example script producing a "network" which returns the input image:
+function getContainers(). This function should return a list of container objects with unique names to be added to the 
+server. Example script producing a "network" which returns the input image:
     
-def echo(img,**kwargs):
-    return img
     
-def getInferObjects():
-    return {"echo" : echo}
+class EchoContainer(InferenceContainer):
+    def __init__(self):
+        super().__init__('echo','Echo test container',{'in':(0,0,3)},{'out':(0,0,3)},{})
+        
+    def infer(self,*inputMatrices,**kwargs):
+        return np.squeeze(inputMatrices[0])
     
-This echo object would be accessed through URL path /infer/echo. 
+def getContainerMap():
+    return [EchoContainer()]
+    
+    
+This echo object would be accessed through URL path /inferpng/echo. 
 
 A running server can be tested with an input image "input.png" as such:
     
-    curl -X POST --data-binary "@input.png" -H "Content-Type:image/png" localhost:5000/infer/echo -o output.png
+    curl -X POST --data-binary "@input.png" -H "Content-Type:image/png" localhost:5000/inferimg/echo -o output.png
     
 or using forms as such:
     
-    curl -F "data=@input.png" localhost:5000/infer/echo -o output.png
+    curl -F "data=@input.png" localhost:5000/inferimg/echo -o output.png
 
 '''
 from __future__ import division, print_function
@@ -71,7 +78,8 @@ class InferenceClient(object):
         
 
 class InferenceContainer(object):
-    def __init__(self,description,inputMap,outputMap,argMap):
+    def __init__(self,name,description,inputMap,outputMap,argMap):
+        self.name=name
         self.description=description
         self.inputMap=inputMap
         self.outputMap=outputMap
@@ -83,7 +91,7 @@ class InferenceContainer(object):
     
 class EchoContainer(InferenceContainer):
     def __init__(self):
-        super().__init__('Echo test container',{'in':(999,999,3)},{'out':(999,999,3)},{})
+        super().__init__('echo','Echo test container',{'in':(0,0,3)},{'out':(0,0,3)},{})
         
     def infer(self,*inputMatrices,**kwargs):
         return np.squeeze(inputMatrices[0])
@@ -103,7 +111,7 @@ def info(name):
     obj=containers[name]
     
     infoMap={
-        'name':name,
+        'name':obj.name,
         'description':obj.description,
         'inputs':obj.inputMap,
         'outputs':obj.outputMap,
@@ -118,7 +126,7 @@ def inferimg(name):
     obj=containers[name]
     args={k:ast.literal_eval(v) for k,v in request.args.items()} # keep only one value per argument name
         
-    data=request.data or request.files['data'].read()
+    data=request.data or request.files['data'].read() # read posted data or a form file called 'data'
     imgmat=imread(io.BytesIO(data)) # read posted image file to matrix
     logging.info('infer(): %r %r %r %r %r %r'%(name,imgmat.shape,imgmat.dtype,imgmat.min(),imgmat.max(),args))
 
@@ -145,7 +153,7 @@ if __name__=='__main__':
         spec.loader.exec_module(mod)
         
         # update containers with the returned inference objects
-        containers.update(mod.getContainerMap())
+        containers.update({c.name:c for c in mod.getContainers()})
         
     logging.info('Running server with networks %r'%(list(containers.keys()),))
     app.run(host=args.host,port=args.port)

@@ -547,9 +547,5 @@ if __name__=='__main__':
 #    r=ResidualUnit2D(1,2,1)
 #    print(r(torch.rand(10,1,32,32)).shape)
     
-    sb=SpatialBroadcast2D(32,35)
-    
-    x=sb(torch.tensor([[1,2,3]]).cuda())
-    print(x.shape)
-    print(x[0,:,0,0],x[0,:,10,12],x[0,:,31,34])
+
     
