@@ -24,13 +24,13 @@ def oneHot(labels,numClasses):
     return onehot.reshape(*onehotshape) 
 
 
-def samePadding(kernelSize):
+def samePadding(kernelSize,dilation=1):
     '''
     Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
     shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
     '''
     kernelSize=np.atleast_1d(kernelSize)
-    padding=(kernelSize-1)//2
+    padding=((kernelSize-1)//2)+(dilation-1)
     
     return tuple(padding) if padding.shape[0]>1 else padding[0]
     
@@ -167,14 +167,14 @@ class LinearNet(torch.nn.Module):
     
         
 class Convolution2D(nn.Sequential):
-    def __init__(self,inChannels,outChannels,strides=1,kernelSize=3,instanceNorm=True,dropout=0,bias=True,convOnly=False):
+    def __init__(self,inChannels,outChannels,strides=1,kernelSize=3,instanceNorm=True,dropout=0,dilation=1,bias=True,convOnly=False):
         super(Convolution2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
-        padding=samePadding(kernelSize)
+        padding=samePadding(kernelSize,dilation)
         normalizeFunc=nn.InstanceNorm2d if instanceNorm else nn.BatchNorm2d
         
-        self.add_module('conv',nn.Conv2d(inChannels,outChannels,kernelSize,strides,padding,bias=bias))
+        self.add_module('conv',nn.Conv2d(inChannels,outChannels,kernelSize,strides,padding,dilation,bias=bias))
         
         if not convOnly:
             self.add_module('norm',normalizeFunc(outChannels))
@@ -203,27 +203,34 @@ class ConvTranspose2D(nn.Sequential):
         
 
 class ResidualUnit2D(nn.Module):
-    def __init__(self, inChannels,outChannels,strides=1,kernelSize=3,subunits=2,instanceNorm=True,dropout=0,bias=True,lastConvOnly=False):
+    def __init__(self, inChannels,outChannels,strides=1,kernelSize=3,subunits=2,instanceNorm=True,dropout=0,dilation=1,bias=True,lastConvOnly=False):
         super(ResidualUnit2D,self).__init__()
         self.inChannels=inChannels
         self.outChannels=outChannels
         self.conv=nn.Sequential()
         self.residual=lambda i:i
         
-        padding=samePadding(kernelSize)
+        padding=samePadding(kernelSize,dilation)
         schannels=inChannels
         sstrides=strides
         
         for su in range(subunits):
             convOnly=lastConvOnly and su==(subunits-1)
-            unit=Convolution2D(schannels,outChannels,sstrides,kernelSize,instanceNorm,dropout,bias,convOnly)
+            unit=Convolution2D(schannels,outChannels,sstrides,kernelSize,instanceNorm,dropout,dilation,bias,convOnly)
             self.conv.add_module('unit%i'%su,unit)
             schannels=outChannels # after first loop set the channels and strides to what they should be for subsequent units
             sstrides=1
             
         # apply this convolution to the input to change the number of output channels and output size to match that coming from self.conv
         if np.prod(strides)!=1 or inChannels!=outChannels:
-            self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=kernelSize,stride=strides,padding=padding,bias=bias)
+            rkernelSize=kernelSize
+            rpadding=padding
+            
+            if np.prod(strides)==1: # if only adapting number of channels a 1x1 kernel is used with no padding
+                rkernelSize=1 
+                rpadding=0
+                
+            self.residual=nn.Conv2d(inChannels,outChannels,kernel_size=rkernelSize,stride=strides,padding=rpadding,bias=bias)
         
     def forward(self,x):
         res=self.residual(x) # create the additive residual from x
@@ -262,9 +269,9 @@ class Classifier(nn.Module):
         
     def _getLayer(self,inChannels,outChannels,strides,isLast):
         if self.numResUnits>0:
-            return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,self.numResUnits,self.instanceNorm,self.dropout,self.bias,isLast)
+            return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,self.numResUnits,self.instanceNorm,self.dropout,1,self.bias,isLast)
         else:
-            return Convolution2D(inChannels,outChannels,strides,self.kernelSize,self.instanceNorm,self.dropout,self.bias,isLast)
+            return Convolution2D(inChannels,outChannels,strides,self.kernelSize,self.instanceNorm,self.dropout,1,self.bias,isLast)
         
     def forward(self,x):
         b=x.size(0)
@@ -311,7 +318,7 @@ class Generator(nn.Module):
             
             self.conv.add_module('invconv_%i'%i,ConvTranspose2D(echannel,c,s,kernelSize,instanceNorm,dropout,bias,isLast or numSubunits>0))
             if numSubunits>0:
-                self.conv.add_module('decode_%i'%i,ResidualUnit2D(c,c,1,kernelSize,numSubunits,instanceNorm,dropout,bias,isLast))
+                self.conv.add_module('decode_%i'%i,ResidualUnit2D(c,c,1,kernelSize,numSubunits,instanceNorm,dropout,1,bias,isLast))
                 
             echannel=c
         
@@ -442,7 +449,37 @@ class VarAutoEncoder(AutoEncoder):
         z = self.reparameterize(mu, logvar)
         return self.decodeForward(z), mu, logvar, z
         
+   
+class DiAutoEncoder(nn.Sequential):
+    def __init__(self,inChannels,outChannels,channels,dilations,numSubUnits=2,kernelSize=3,instanceNorm=True, dropout=0,bias=True):
+        super().__init__()
+        self.inChannels=inChannels
+        self.outChannels=outChannels
+        self.channels=channels
+        self.dilations=dilations
+        self.numSubUnits=numSubUnits
+        self.kernelSize=kernelSize
+        self.instanceNorm=instanceNorm
+        self.dropout=dropout
+        self.bias=bias
         
+        layerChannels=inChannels
+#        self.add_module('inconv',pytorchnet.Convolution2D(inChannels,inChannels,1,kernelSize,instanceNorm,dropout,bias))
+#        
+#        for i,(c,d) in enumerate(zip(channels,dilations)):
+#            self.add_module('dilateblock%i'%i,DilationBlock(layerChannels,c,d,numKernels,kernelSize,instanceNorm, dropout,bias))
+#            layerChannels=c            
+        
+        for i,(c,d) in enumerate(zip(channels,dilations)):
+            self.add_module('dilateblock%i'%i,ResidualUnit2D(layerChannels,c,1,kernelSize,numSubUnits,instanceNorm,dropout,d,bias))
+            layerChannels=c
+
+        self.add_module('outconv',nn.Conv2d(layerChannels,outChannels,1,bias=bias))
+        
+    def forward(self,x):
+        return (super().forward(x),)
+    
+     
 class UnetBlock(nn.Module):
     def __init__(self,encode,decode,subblock):
         super(UnetBlock,self).__init__()
@@ -519,7 +556,25 @@ class Unet(nn.Module):
         return x, preds 
     
     
-#if __name__=='__main__':
+class DiSegnet(DiAutoEncoder):
+    def __init__(self,inChannels,numClasses,channels,dilations,numSubUnits=2,kernelSize=3,instanceNorm=True, dropout=0,bias=True):
+        super().__init__(inChannels,numClasses,channels,dilations,numSubUnits,kernelSize,instanceNorm, dropout,bias)
+        
+    def forward(self,x):
+        x=super().forward(x)[0]
+        
+        # generate prediction outputs, x has shape BCHW
+        if self.outChannels==1:
+            preds=(x[:,0]>=0).type(torch.IntTensor)
+        else:
+            preds=x.max(1)[1] # take the index of the max value along dimension 1
+
+        return x, preds 
+    
+    
+if __name__=='__main__':
+    t=torch.rand((10,1,256,256))
+    
 #    b1=UnetBlock(nn.Conv2d(5,10,3,2,samePadding(3)),nn.ConvTranspose2d(10,5,3,2,1,1),None)
 #    b2=UnetBlock(nn.Conv2d(3,5,3,2,samePadding(3)),nn.ConvTranspose2d(10,3,3,2,1,1),b1,True)
     
@@ -530,8 +585,6 @@ class Unet(nn.Module):
 #    print(unet)
 #    print(unet(torch.zeros((2,1,16,16)))[0].shape)
     
-    
-#    t=torch.rand((10,1,256,256))
 #    a=AutoEncoder(1,1,[32, 64, 128],[1,2,2],5,3,0,0)
 #    print(t.shape,a(t)[0].shape)
     
@@ -546,4 +599,8 @@ class Unet(nn.Module):
     
 #    r=ResidualUnit2D(1,2,1)
 #    print(r(torch.rand(10,1,32,32)).shape)
+    
+    dae=DiAutoEncoder(1,2,[2,4],[2,4])
+    print(dae)
+    print(dae(t)[0].shape)
     

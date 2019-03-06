@@ -136,6 +136,26 @@ def getCpuInfo(src='/proc/stat',waitTime=0.05):
     return result
 
 
+def createTestImage(width,height,numObjs=12,radMax=30,noiseMax=0.0):
+    '''
+    Return a noisy 2D image of dimensions (height,width) with `numObj' circles and a 2D mask image. If `noiseMax' is
+    greater than 0 then noise will be added to the image taken from the uniform distribution on range [0,noiseMax).
+    '''
+    image=np.zeros((width,height),np.float32)
+    
+    for i in range(numObjs):
+        x=np.random.randint(radMax,width-radMax)
+        y=np.random.randint(radMax,height-radMax)
+        rad=np.random.randint(10,radMax)
+        spy,spx = np.ogrid[-x:width-x, -y:height-y]
+        circle=(spx*spx+spy*spy)<=rad*rad
+        image[circle]=np.random.random()*0.5+0.5
+    
+    norm=np.random.uniform(0,noiseMax,size=image.shape)
+    
+    return np.maximum(image,norm).astype(np.float32),(image>0).astype(np.float32)
+
+
 def rescaleArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
     '''Rescale the values of numpy array `arr' to be from `minv' to `maxv'.'''
     if dtype is not None:
