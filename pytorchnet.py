@@ -2,7 +2,6 @@
 # Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
 
 from __future__ import print_function,division
-from collections import OrderedDict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -106,16 +105,23 @@ class DiceLoss(_Loss):
         
 
 class KLDivLoss(_Loss):
+    '''
+    Computes a loss combining KL divergence and a reconstruction loss. The default reconstruction loss is BCE which is
+    suited for images, substituting this for L1/L2 loss for regression appears to work better for smaller data sets. The
+    balance between KLD and the recon loss is important, so the KLD weight value `beta' should be adjusted to prevent 
+    KLD dominating the output.
+    '''
     def __init__(self,reconLoss=torch.nn.BCELoss(reduction='sum'),beta=1.0):
-        _Loss.__init__(self)
+        '''Initialize the loss function with the given reconstruction loss function `reconloss' and KLD weight `beta'.'''
+        super().__init__()
         self.reconLoss=reconLoss
         self.beta=beta
         
-    def forward(self,reconx, x, mu, logvar):
-        assert x.min() >= 0.0 and x.max() <= 1.0,'%f -> %f'%(x.min(), x.max() )
-        assert reconx.min() >= 0.0 and reconx.max() <= 1.0,'%f -> %f'%(reconx.min(), reconx.max() )
+    def forward(self,reconx,x,mu,logvar):
+        assert 0.0<=x.min()<x.max()<=1.0,'%f -> %f'%(x.min(), x.max())
+        assert 0.0<=reconx.min()<reconx.max()<=1.0,'%f -> %f'%(reconx.min(), reconx.max())
         
-        KLD = -0.5 * self.beta * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # KL divergence loss with beta term
+        KLD = -0.5*self.beta*torch.sum(1+logvar-mu.pow(2)-logvar.exp()) # KL divergence loss with beta term
         return KLD+self.reconLoss(reconx,x)
         
     
@@ -130,7 +136,7 @@ class ThresholdMask(torch.nn.Module):
         return (t/(t+self.eps))/(1-self.eps)
     
         
-class LinearNet(torch.nn.Module):
+class DenseNet(torch.nn.Module):
     '''Plain neural network of linear layers using dropout and PReLU activation.'''
     def __init__(self,inChannels,outChannels,hiddenChannels,dropout=0,bias=True):
         '''
@@ -164,6 +170,69 @@ class LinearNet(torch.nn.Module):
         x=self.hiddens(x)
         x=self.output(x)
         return x
+    
+
+class DenseVAE(torch.nn.Module):
+    # like https://github.com/pytorch/examples/blob/master/vae/main.py but configurable through the constructor
+    
+    def __init__(self,inChannels,outChannels,latentSize,encodeChannels,decodeChannels,dropout=0,bias=True):
+        super().__init__()
+        self.inChannels=inChannels
+        self.outChannels=outChannels
+        self.latentSize=latentSize
+        self.dropout=dropout
+        
+        self.encode=nn.Sequential()
+        self.decode=nn.Sequential()
+        
+        prevChannels=self.inChannels
+        for i,c in enumerate(encodeChannels):
+            self.encode.add_module('encode_%i'%i,self._getLayer(prevChannels,c,bias))
+            prevChannels=c
+
+        self.mu=nn.Linear(prevChannels,self.latentSize)
+        self.logvar=nn.Linear(prevChannels,self.latentSize)
+        self.decodeL=nn.Linear(self.latentSize,prevChannels)
+        
+        for i,c in enumerate(decodeChannels):
+            self.decode.add_module('decode%i'%i,self._getLayer(prevChannels,c,bias))
+            prevChannels=c
+            
+        self.decode.add_module('final',nn.Linear(prevChannels,outChannels,bias))
+        
+    def _getLayer(self,inChannels,outChannels,bias):
+        return torch.nn.Sequential(
+            nn.Linear(inChannels,outChannels,bias),
+            nn.Dropout(self.dropout),
+            nn.PReLU()
+        )
+        
+    def encodeForward(self,x):
+        x=self.encode(x)
+        x=x.view(x.shape[0],-1)
+        mu=self.mu(x)
+        logvar=self.logvar(x)
+        return mu,logvar
+        
+    def decodeForward(self,z):
+        x=torch.relu(self.decodeL(z))
+        x=x.view(x.shape[0],-1)
+        x=self.decode(x)
+        x=torch.sigmoid(x)
+        return x
+        
+    def reparameterize(self, mu, logvar):
+        std=torch.exp(0.5*logvar)
+        
+        if self.training: # multiply random noise with std only during training
+            std=torch.randn_like(std).mul(std)
+            
+        return std.add_(mu)
+        
+    def forward(self, x):
+        mu, logvar = self.encodeForward(x)
+        z = self.reparameterize(mu, logvar)
+        return self.decodeForward(z), mu, logvar, z
     
         
 class Convolution2D(nn.Sequential):
@@ -218,7 +287,7 @@ class ResidualUnit2D(nn.Module):
         self.inChannels=inChannels
         self.outChannels=outChannels
         self.conv=nn.Sequential()
-        self.residual=lambda i:i
+        self.residual=None
         
         padding=samePadding(kernelSize,dilation)
         schannels=inChannels
@@ -244,7 +313,7 @@ class ResidualUnit2D(nn.Module):
             self.residual=nn.Conv2d(inChannels,outChannels,rkernelSize,strides,rpadding,bias=bias)
         
     def forward(self,x):
-        res=self.residual(x) # create the additive residual from x
+        res=x if self.residual is None else self.residual(x) # create the additive residual from x
         cx=self.conv(x) # apply x to sequence of operations
         return cx+res # add the residual to the output
 
@@ -347,24 +416,26 @@ class Generator(nn.Module):
 
 class AutoEncoder(nn.Module):
     def __init__(self,inChannels,outChannels,channels,strides,kernelSize=3,upKernelSize=3,
-                 numResUnits=0, numInterUnits=0, instanceNorm=True, dropout=0):
+                 numResUnits=0,interChannels=[], interDilations=[], numInterUnits=2,instanceNorm=True, dropout=0):
         super().__init__()
         assert len(channels)==len(strides)
         self.inChannels=inChannels
         self.outChannels=outChannels
-        self.channels=channels
-        self.strides=strides
+        self.channels=list(channels)
+        self.strides=list(strides)
         self.kernelSize=kernelSize
         self.upKernelSize=upKernelSize
         self.numResUnits=numResUnits
         self.instanceNorm=instanceNorm
         self.dropout=dropout
         self.numInterUnits=numInterUnits
+        self.interChannels=list(interChannels)
+        self.interDilations=list(interDilations or [1]*len(interChannels))
         
         self.encodedChannels=inChannels
         self.encode,self.encodedChannels=self._getEncodeModule(self.encodedChannels,channels,strides)
         self.intermediate,self.encodedChannels=self._getIntermediateModule(self.encodedChannels,numInterUnits)
-        self.decode,_=self._getDecodeModule(self.encodedChannels,list(channels[-2::-1])+[outChannels],strides[::-1])
+        self.decode,_=self._getDecodeModule(self.encodedChannels,list(channels[-2::-1])+[outChannels],strides[::-1] or [1])
             
     def _getEncodeModule(self,inChannels,channels,strides):
         encode=nn.Sequential()
@@ -379,15 +450,19 @@ class AutoEncoder(nn.Module):
     
     def _getIntermediateModule(self,inChannels,numInterUnits):
         intermediate=None
-        if numInterUnits>0:
+        layerChannels=inChannels
+            
+        if self.interChannels:
             intermediate=nn.Sequential()
             
-            for i in range(numInterUnits):
-                unit=ResidualUnit2D(inChannels,inChannels,1,self.kernelSize,
-                                    self.numResUnits,self.instanceNorm,self.dropout)
+            for i,(dc,di) in enumerate(zip(self.interChannels,self.interDilations)):
+                
+                unit=ResidualUnit2D(layerChannels,dc,1,self.kernelSize,
+                                self.numInterUnits,self.instanceNorm,self.dropout,di)
                 intermediate.add_module('inter_%i'%i,unit)
+                layerChannels=dc
 
-        return intermediate,inChannels
+        return intermediate,layerChannels
     
     def _getDecodeModule(self,inChannels,channels,strides):
         decode=nn.Sequential()
@@ -409,7 +484,7 @@ class AutoEncoder(nn.Module):
     
     def _getDecodeLayer(self,inChannels,outChannels,strides,isLast):
         conv=Convolution2D(inChannels,outChannels,strides,self.upKernelSize,
-                           self.instanceNorm,self.dropout,convOnly=isLast and self.numResUnits==0)
+                           self.instanceNorm,self.dropout,convOnly=isLast and self.numResUnits==0,isTransposed=True)
         
         if self.numResUnits>0:
             return nn.Sequential( conv,
@@ -428,14 +503,15 @@ class AutoEncoder(nn.Module):
     
     
 class VarAutoEncoder(AutoEncoder):
-    def __init__(self,inShape,outChannels,latentSize,channels,strides,kernelSize=3,
-                 upKernelSize=3,numResUnits=0, numInterUnits=0, instanceNorm=True, dropout=0):
+    def __init__(self,inShape,outChannels,latentSize,channels,strides,kernelSize=3,upKernelSize=3,
+                 numResUnits=0, interChannels=[], interDilations=[],numInterUnits=2, instanceNorm=True, dropout=0):
+        
         self.inHeight,self.inWidth,inChannels=inShape
         self.latentSize=latentSize
         self.finalSize=np.asarray([self.inHeight,self.inWidth],np.int)
         
         super().__init__(inChannels,outChannels,channels,strides,kernelSize,upKernelSize,numResUnits, 
-                         numInterUnits, instanceNorm, dropout)
+                         interChannels, interDilations,numInterUnits, instanceNorm, dropout)
 
         for s in strides:
             self.finalSize=calculateOutShape(self.finalSize,self.kernelSize,s,samePadding(self.kernelSize))
@@ -475,38 +551,12 @@ class VarAutoEncoder(AutoEncoder):
         return self.decodeForward(z), mu, logvar, z
         
    
-class DiAutoEncoder(nn.Sequential):
-    def __init__(self,inChannels,outChannels,channels,dilations,numSubUnits=2,
-                 kernelSize=3,instanceNorm=True, dropout=0,bias=True):
-        super().__init__()
-        self.inChannels=inChannels
-        self.outChannels=outChannels
-        self.channels=channels
-        self.dilations=dilations
-        self.numSubUnits=numSubUnits
-        self.kernelSize=kernelSize
-        self.instanceNorm=instanceNorm
-        self.dropout=dropout
-        self.bias=bias
-        
-        layerChannels=inChannels
-        
-        for i,(c,d) in enumerate(zip(channels,dilations)):
-            ru=ResidualUnit2D(layerChannels,c,1,kernelSize,numSubUnits,instanceNorm,dropout,d,bias)
-            self.add_module('dilateblock%i'%i,ru)
-            layerChannels=c
+class SegnetAE(AutoEncoder):
+    def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,upKernelSize=3,
+                 numResUnits=0,interChannels=[], interDilations=[], numInterUnits=2,instanceNorm=True, dropout=0):
+        super().__init__(inChannels,numClasses,channels,strides,kernelSize,upKernelSize,
+                 numResUnits,interChannels, interDilations, numInterUnits,instanceNorm, dropout)
 
-        self.add_module('outconv',nn.Conv2d(layerChannels,outChannels,1,bias=bias))
-        
-    def forward(self,x):
-        return (super().forward(x),)
-    
-    
-class DiSegnet(DiAutoEncoder):
-    def __init__(self,inChannels,numClasses,channels,dilations,
-                 numSubUnits=2,kernelSize=3,instanceNorm=True, dropout=0,bias=True):
-        super().__init__(inChannels,numClasses,channels,dilations,numSubUnits,kernelSize,instanceNorm, dropout,bias)
-        
     def forward(self,x):
         x=super().forward(x)[0]
         
@@ -516,7 +566,51 @@ class DiSegnet(DiAutoEncoder):
         else:
             preds=x.max(1)[1] # take the index of the max value along dimension 1
 
-        return x, preds 
+        return x, preds
+    
+
+# class DiAutoEncoder(nn.Sequential):
+#     def __init__(self,inChannels,outChannels,channels,dilations,numSubUnits=2,
+#                  kernelSize=3,instanceNorm=True, dropout=0,bias=True):
+#         super().__init__()
+#         self.inChannels=inChannels
+#         self.outChannels=outChannels
+#         self.channels=channels
+#         self.dilations=dilations
+#         self.numSubUnits=numSubUnits
+#         self.kernelSize=kernelSize
+#         self.instanceNorm=instanceNorm
+#         self.dropout=dropout
+#         self.bias=bias
+        
+#         layerChannels=inChannels
+        
+#         for i,(c,d) in enumerate(zip(channels,dilations)):
+#             ru=ResidualUnit2D(layerChannels,c,1,kernelSize,numSubUnits,instanceNorm,dropout,d,bias)
+#             self.add_module('dilateblock%i'%i,ru)
+#             layerChannels=c
+
+#         self.add_module('outconv',nn.Conv2d(layerChannels,outChannels,1,bias=bias))
+        
+#     def forward(self,x):
+#         return (super().forward(x),)
+    
+    
+# class DiSegnet(DiAutoEncoder):
+#     def __init__(self,inChannels,numClasses,channels,dilations,
+#                  numSubUnits=2,kernelSize=3,instanceNorm=True, dropout=0,bias=True):
+#         super().__init__(inChannels,numClasses,channels,dilations,numSubUnits,kernelSize,instanceNorm, dropout,bias)
+        
+#     def forward(self,x):
+#         x=super().forward(x)[0]
+        
+#         # generate prediction outputs, x has shape BCHW
+#         if self.outChannels==1:
+#             preds=(x[:,0]>=0).type(torch.IntTensor)
+#         else:
+#             preds=x.max(1)[1] # take the index of the max value along dimension 1
+
+#         return x, preds 
     
      
 class UnetBlock(nn.Module):
@@ -578,7 +672,7 @@ class Unet(nn.Module):
     
     def _getUpLayer(self,inChannels,outChannels,strides,isTop):
         conv=Convolution2D(inChannels,outChannels,strides,self.upKernelSize,
-                           self.instanceNorm,self.dropout,convOnly=isTop and self.numResUnits==0)
+                           self.instanceNorm,self.dropout,convOnly=isTop and self.numResUnits==0,isTransposed=True)
         
         if self.numResUnits>0:
             return nn.Sequential( conv,
@@ -628,7 +722,7 @@ if __name__=='__main__':
 #    r=ResidualUnit2D(1,2,1)
 #    print(r(torch.rand(10,1,32,32)).shape)
     
-    dae=DiAutoEncoder(1,2,[2,4],[2,4])
-    print(dae)
-    print(dae(t)[0].shape)
+#    dae=DiAutoEncoder(1,2,[2,4],[2,4])
+#    print(dae)
+#    print(dae(t)[0].shape)
     
