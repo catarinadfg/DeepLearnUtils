@@ -28,6 +28,32 @@ def convertBoth(images,out):
     return images.transpose([2,0,1]), out.transpose([2,0,1])
 
 
+class SimpleTrainer(object):
+    def __init__(self,steps,net,loss,opt=None):
+        self.steps=steps
+        self.step=0
+        self.net=net
+        self._loss=loss
+        self.lossval=None
+        self.opt=opt or torch.optim.Adam(net.parameters())
+        
+    def loss(self,*args,**kwargs):
+        self.lossval=self._loss(*args,**kwargs)
+        return self.lossval.item()
+    
+    def __str__(self):
+        lval=self.lossval.item() if self.lossval else float('nan')
+        return 'Trainer(Step: %i, Loss: %f)'%(self.step,lval)
+        
+    def __iter__(self):
+        while self.step<self.steps:
+            self.step+=1
+            self.opt.zero_grad()
+            yield self
+            self.lossval.backward()
+            self.opt.step()
+    
+
 class NetworkManager(object):
     '''
     This manages the training, loading, saving, and evaluation of a input network. It defines the train, evaluate, and
@@ -45,6 +71,7 @@ class NetworkManager(object):
         '''
         self.net=net
         self.isCuda=isCuda
+        self.device=torch.device('cuda' if isCuda and torch.cuda.is_available else 'cpu')
         self.params=params
         self.opt=opt
         self.loss=loss
@@ -58,9 +85,11 @@ class NetworkManager(object):
         self.savePrefix=savePrefix
         self.logfilename='%s_train.log'%(self.savePrefix,)
         
-        if isCuda and self.net is not None:
+        if isCuda and torch.cuda.is_available():
             torch.cuda.empty_cache()
-            self.net=self.net.cuda()
+            
+        if self.net is not None:
+            self.net=self.net.to(self.device)
             
         if self.opt is None and self.net is not None:
             lr=params.get('learningRate',1e-3)
@@ -142,12 +171,7 @@ class NetworkManager(object):
         state=torch.load(path)
         self.net=state.pop('__net__')
         self.net.load_state_dict(state)
-        
-        # ensure the hardware state of the loaded network matches what's requested
-        if self.isCuda:
-            self.net=self.net.cuda()
-        else:
-            self.net=self.net.cpu()
+        self.net=self.net.to(self.device) # ensure the hardware state of the loaded network matches what's requested
         
     def saveNet(self,path):
         '''Save the network and its state to the given path by adding the network as "__net__" to the state dict.'''
@@ -161,14 +185,10 @@ class NetworkManager(object):
         
     def convertArray(self,arr):
         '''Convert the Numpy array `arr' to a PyTorch tensor, converting to Cuda if necessary.'''
-        if isinstance(arr,torch.Tensor):
-            return arr
+        if not isinstance(arr,torch.Tensor):
+            arr=torch.from_numpy(arr)
         
-        arr=torch.from_numpy(arr)
-        if self.isCuda:
-            arr=arr.cuda()
-            
-        return arr
+        return arr.to(self.device)
     
     def toNumpy(self,arr):
         '''Convert the PyTorch Tensor `arr' to a Numpy array.'''
@@ -193,8 +213,8 @@ class NetworkManager(object):
         Train the network for `step' number of steps starting at 1, saving `savesteps' number of times at regular 
         intervals. The callable `inputfunc' is expected to take no arguments and return a tuple pf batch Numpy arrays of 
         shape, B, BC, BCHW or BCDHW. A train step is composed of these steps:
-            1. `inputfunc' is called, each returned value is converted to a tensor, then assigned to self.traininputs
-            2. trainStep() is called which is exped to do the following for `substeps' number of times:
+            1. `inputfunc' is called, each returned value is converted to a tensor, then tuple of all assigned to self.traininputs
+            2. trainStep() is called which is expected to do the following for `substeps' number of times:
               a. self.netForward() is called and results assigned to self.netoutputs
               b. self.lossForward() is called and results assigned to self.lossoutput
               c. The optimizer performs one training step

@@ -9,6 +9,7 @@ import inspect
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+import matplotlib.animation as animation
 
 isWindows=platform.system().lower()=='windows'
 
@@ -473,7 +474,26 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     plt.tight_layout(pad=0.0, w_pad=0.0, h_pad=0.0)
     
     return fig,ims
+
+
+def viewVolume(vol,figSize=(8,8),interval=250,textSize=10):
+    from IPython.core.display import HTML
     
+    fig, ax = plt.subplots(figsize=figSize)
+    plt.axis("off")
+    imgs=[]
+    
+    for i in range(len(vol)):
+        im=plt.imshow(vol[i],animated=True)
+        title=plt.text(0.5, 1.01, 'Slice %i'%i, horizontalalignment='center', 
+                       verticalalignment='bottom', transform=ax.transAxes,size=textSize)
+        
+        imgs.append([im,title])
+    
+    ani=animation.ArtistAnimation(fig, imgs, interval=interval, repeat_delay=0, blit=True)
+    plt.close()
+    return HTML(ani.to_jshtml())
+
 
 class JupyterThreadMonitor(threading.Thread):
     def __init__(self,*args,**kwargs):

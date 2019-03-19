@@ -118,8 +118,8 @@ class KLDivLoss(_Loss):
         self.beta=beta
         
     def forward(self,reconx,x,mu,logvar):
-        assert 0.0<=x.min()<x.max()<=1.0,'%f -> %f'%(x.min(), x.max())
-        assert 0.0<=reconx.min()<reconx.max()<=1.0,'%f -> %f'%(reconx.min(), reconx.max())
+#         assert 0.0<=x.min()<x.max()<=1.0,'%f -> %f'%(x.min(), x.max())
+#         assert 0.0<=reconx.min()<reconx.max()<=1.0,'%f -> %f'%(reconx.min(), reconx.max())
         
         KLD = -0.5*self.beta*torch.sum(1+logvar-mu.pow(2)-logvar.exp()) # KL divergence loss with beta term
         return KLD+self.reconLoss(reconx,x)
