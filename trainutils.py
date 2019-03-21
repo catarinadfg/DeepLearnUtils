@@ -182,9 +182,10 @@ def rescaleArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
 
 
 def rescaleInstanceArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
-    out=np.zeros_like(arr)
+    '''Rescale each array slice along the first dimension of `arr' independently.'''
+    out=np.zeros(arr.shape,dtype)
     for i in range(arr.shape[0]):
-        out[0]=rescaleArray(arr[0],minv,maxv,dtype)
+        out[i]=rescaleArray(arr[i],minv,maxv,dtype)
         
     return out
 
@@ -193,23 +194,6 @@ def rescaleArrayIntMax(arr,dtype=np.uint16):
     '''Rescale the array `arr' to be between the minimum and maximum values of the type `dtype'.'''
     info=np.iinfo(dtype)
     return rescaleArray(arr,info.min,info.max).astype(dtype)
-
-
-# def cropCenter(img,cropy,cropx,startAxis=0):
-#     '''
-#     Crop the center of the given array `img' along the dimensions `startAxis' and `startAxis'+1.
-#     The result will have axis `startAxis' dimension `cropy' and axis `startAxis'+1 dimension `cropx'.
-#     '''
-#     y,x = img.shape[1:3]
-#     starty = max(0,y//2-(cropy//2))
-#     startx = max(0,x//2-(cropx//2))
-    
-#     slices=[slice(None) for _ in range(img.ndim)]
-#     slices[startAxis]=slice(starty,starty+cropy)
-#     slices[startAxis+1]=slice(startx,startx+cropx)
-    
-#     return img[slices]
-#     #return img[starty:starty+cropy,startx:startx+cropx]
     
     
 def cropCenter(img,*cropDims):
