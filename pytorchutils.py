@@ -359,7 +359,7 @@ class SegmentMgr(NetworkManager):
     '''
     def __init__(self,net,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         loss=loss if loss is not None else pytorchnet.DiceLoss()
-        super(SegmentMgr,self).__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)   
+        super().__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)   
     
  
 class AutoEncoderMgr(NetworkManager):
@@ -370,13 +370,13 @@ class AutoEncoderMgr(NetworkManager):
     '''
     def __init__(self,net,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         loss=loss if loss is not None else torch.nn.MSELoss()
-        super(AutoEncoderMgr,self).__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
+        super().__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
     
     
 class VarAutoEncoderMgr(NetworkManager):
     def __init__(self,net,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         loss=loss if loss is not None else pytorchnet.KLDivLoss()
-        super(VarAutoEncoderMgr,self).__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
+        super().__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
     
     def lossForward(self):
         outs=self.traininputs[-1]
@@ -393,7 +393,7 @@ class ImageClassifierMgr(NetworkManager):
     '''
     def __init__(self,net,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loss=None,**params):
         loss=loss if loss is not None else torch.nn.CrossEntropyLoss()
-        super(ImageClassifierMgr,self).__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
+        super().__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
     
     
 class DiscriminatorMgr(NetworkManager):
@@ -420,7 +420,7 @@ class DiscriminatorMgr(NetworkManager):
         self.genloss=0
         
         loss=loss if loss is not None else torch.nn.BCELoss()
-        NetworkManager.__init__(self,net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
+        super().__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
     
     def trainStep(self,numSubsteps):
         realinputs=self.traininputs # already filled by train()
@@ -491,7 +491,7 @@ class GeneratorMgr(NetworkManager):
         if loss is None:
             loss=disc
             
-        NetworkManager.__init__(self,net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
+        super().__init__(net,loss,isCuda,opt,saveDirPrefix,savePrefix,**params)
     
     def lossForward(self):
         preds=self.netoutputs[0]

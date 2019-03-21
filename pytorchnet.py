@@ -69,34 +69,53 @@ def addNormalNoise(m,mean=0,std=1e-5):
     noise=torch.zeros_like(m,device=m.device)
     noise.data.normal_(mean,std)
     return m+noise
+
+
+def predictSegmentation(logits):
+    # generate prediction outputs, logits has shape BCHW
+    if logits.shape[1]==1:
+        return (logits[:,0]>=0).type(torch.IntTensor) # for binary segmentation threshold on channel 0
+    else:
+        return logits.max(1)[1] # take the index of the max value along dimension 1
         
 
 class DiceLoss(_Loss):
-    def forward(self, source, target, smooth=1e-5):
-        '''
-        Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
-        `target' (B1HW). Axis N of `source' is expected to have logit predictions for each class rather than being the
-        image channels, while the same axis of `target' should be 1. If the N channel of `source' is 1 binary dice loss
-        will be calculated. The `smooth' parameter is a value added to the intersection and union components of the 
-        inter-over-union calculation to smooth results and prevent divide-by-0, this value should be small.
-        '''
-        assert target.shape[1]==1,'Target shape is '+str(target.shape)
+    '''
+    Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
+    `target' (B1HW). Axis N of `source' is expected to have logit predictions for each class rather than being the image 
+    channels, while the same axis of `target' should be 1. If the N channel of `source' is 1 binary dice loss will be 
+    calculated. The `smooth' parameter is a value added to the intersection and union components of the inter-over-union 
+    calculation to smooth results and prevent divide-by-0, this value should be small. The `includeBackground' class
+    attribute can be set to False for an instance of DiceLoss to exclude the first category (channel index 0) which is
+    by convention assumed to be the background. If the non-background segmentations are small compared to the total image
+    size they can get overwhelmed by the signal from the background so excluding it in such cases helps convergence.
+    '''
+    
+    includeBackground=True # set to False to exclude the background category (channel index 0) from the loss calculation
         
-        batchsize = target.size(0)
+    def forward(self, source, target, smooth=1e-5):
+        assert target.shape[1]==1,'Target should have only a single channel, shape is '+str(target.shape)
         
         if source.shape[1]==1: # binary dice loss, use sigmoid activation
-            probs=source.float().sigmoid()
+            psum=source.float().sigmoid()
             tsum=target
         else:
-            # multiclass dice loss, use softmax and convert target to one-hot encoding
-            probs=F.softmax(source,1)
+            # multiclass dice loss, use softmax in the first dimension and convert target to one-hot encoding
+            psum=F.softmax(source,1)
             tsum=oneHot(target,source.shape[1]) # BCHW -> BCHWN
             tsum=tsum[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
             
-            assert tsum.shape==source.shape
+            assert tsum.shape==source.shape,'One-hot encoding of target has differing shape from source'
+            
+            # exclude background category so that it doesn't overwhelm the other segmentations if they are small
+            if not self.includeBackground:
+                tsum=tsum[:,1:]
+                psum=psum[:,1:]
+                source=source[:,1:]
         
+        batchsize = target.size(0)
         tsum = tsum.float().view(batchsize, -1)
-        psum = probs.view(batchsize, -1)
+        psum = psum.view(batchsize, -1)
         intersection=psum*tsum
         sums=psum+tsum
 
@@ -136,8 +155,8 @@ class ThresholdMask(torch.nn.Module):
         return (t/(t+self.eps))/(1-self.eps)
     
         
-class DenseNet(torch.nn.Module):
-    '''Plain neural network of linear layers using dropout and PReLU activation.'''
+class DNN(torch.nn.Module):
+    '''Plain dense neural network of linear layers using dropout and PReLU activation.'''
     def __init__(self,inChannels,outChannels,hiddenChannels,dropout=0,bias=True):
         '''
         Defines a network accept input with `inChannels' channels, output of `outChannels' channels, and hidden layers 
@@ -559,63 +578,12 @@ class SegnetAE(AutoEncoder):
 
     def forward(self,x):
         x=super().forward(x)[0]
-        
-        # generate prediction outputs, x has shape BCHW
-        if self.outChannels==1:
-            preds=(x[:,0]>=0).type(torch.IntTensor)
-        else:
-            preds=x.max(1)[1] # take the index of the max value along dimension 1
-
-        return x, preds
-    
-
-# class DiAutoEncoder(nn.Sequential):
-#     def __init__(self,inChannels,outChannels,channels,dilations,numSubUnits=2,
-#                  kernelSize=3,instanceNorm=True, dropout=0,bias=True):
-#         super().__init__()
-#         self.inChannels=inChannels
-#         self.outChannels=outChannels
-#         self.channels=channels
-#         self.dilations=dilations
-#         self.numSubUnits=numSubUnits
-#         self.kernelSize=kernelSize
-#         self.instanceNorm=instanceNorm
-#         self.dropout=dropout
-#         self.bias=bias
-        
-#         layerChannels=inChannels
-        
-#         for i,(c,d) in enumerate(zip(channels,dilations)):
-#             ru=ResidualUnit2D(layerChannels,c,1,kernelSize,numSubUnits,instanceNorm,dropout,d,bias)
-#             self.add_module('dilateblock%i'%i,ru)
-#             layerChannels=c
-
-#         self.add_module('outconv',nn.Conv2d(layerChannels,outChannels,1,bias=bias))
-        
-#     def forward(self,x):
-#         return (super().forward(x),)
-    
-    
-# class DiSegnet(DiAutoEncoder):
-#     def __init__(self,inChannels,numClasses,channels,dilations,
-#                  numSubUnits=2,kernelSize=3,instanceNorm=True, dropout=0,bias=True):
-#         super().__init__(inChannels,numClasses,channels,dilations,numSubUnits,kernelSize,instanceNorm, dropout,bias)
-        
-#     def forward(self,x):
-#         x=super().forward(x)[0]
-        
-#         # generate prediction outputs, x has shape BCHW
-#         if self.outChannels==1:
-#             preds=(x[:,0]>=0).type(torch.IntTensor)
-#         else:
-#             preds=x.max(1)[1] # take the index of the max value along dimension 1
-
-#         return x, preds 
+        return x, predictSegmentation(x)
     
      
 class UnetBlock(nn.Module):
     def __init__(self,encode,decode,subblock):
-        super(UnetBlock,self).__init__()
+        super().__init__()
         self.encode=encode
         self.decode=decode
         self.subblock=subblock
@@ -684,14 +652,7 @@ class Unet(nn.Module):
             
     def forward(self,x):
         x=self.model(x)
-        
-        # generate prediction outputs, x has shape BCHW
-        if self.numClasses==1:
-            preds=(x[:,0]>=0).type(torch.IntTensor)
-        else:
-            preds=x.max(1)[1] # take the index of the max value along dimension 1
-
-        return x, preds 
+        return x, predictSegmentation(x) 
     
     
 if __name__=='__main__':

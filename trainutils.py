@@ -137,24 +137,33 @@ def getCpuInfo(src='/proc/stat',waitTime=0.05):
     return result
 
 
-def createTestImage(width,height,numObjs=12,radMax=30,noiseMax=0.0):
+def createTestImage(width,height,numObjs=12,radMax=30,noiseMax=0.0,numSegClasses=5):
     '''
-    Return a noisy 2D image of dimensions (height,width) with `numObj' circles and a 2D mask image. If `noiseMax' is
-    greater than 0 then noise will be added to the image taken from the uniform distribution on range [0,noiseMax).
+    Return a noisy 2D image with `numObj' circles and a 2D mask image. The maximum radius of the circles is given as 
+    `radMax'. The mask will have `numSegClasses' number of classes for segmentations labeled sequentially from 1, plus a 
+    background class represented as 0. If `noiseMax' is greater than 0 then noise will be added to the image taken from 
+    the uniform distribution on range [0,noiseMax).
     '''
-    image=np.zeros((width,height),np.float32)
+    image=np.zeros((width,height))
     
     for i in range(numObjs):
         x=np.random.randint(radMax,width-radMax)
         y=np.random.randint(radMax,height-radMax)
-        rad=np.random.randint(10,radMax)
-        spy,spx = np.ogrid[-x:width-x, -y:height-y]
+        rad=np.random.randint(5,radMax)
+        spy,spx = np.ogrid[-x:width-x,-y:height-y]
         circle=(spx*spx+spy*spy)<=rad*rad
-        image[circle]=np.random.random()*0.5+0.5
+        
+        if numSegClasses>1:
+            image[circle]=np.ceil(np.random.random()*numSegClasses)
+        else:
+            image[circle]=np.random.random()*0.5+0.5
     
-    norm=np.random.uniform(0,noiseMax,size=image.shape)
+    norm=np.random.uniform(0,numSegClasses*noiseMax,size=image.shape)
+    noisyimage=rescaleArray(np.maximum(image,norm))
     
-    return np.maximum(image,norm).astype(np.float32),(image>0).astype(np.float32)
+    labels=image.astype(np.int32)
+    
+    return noisyimage,labels
 
 
 def rescaleArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
@@ -476,7 +485,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     return fig,ims
 
 
-def viewVolume(vol,figSize=(8,8),interval=250,textSize=10):
+def viewVolumeJupyter(vol,figSize=(8,8),interval=250,textSize=10):
     from IPython.core.display import HTML
     
     fig, ax = plt.subplots(figsize=figSize)
