@@ -72,6 +72,10 @@ def addNormalNoise(m,mean=0,std=1e-5):
 
 
 def predictSegmentation(logits):
+    '''
+    Given the logits from a network, computing the segmentation by thresholding all values above 0 if `logits' has one
+    channel, or computing the argmax along the channel axis otherwise.
+    '''
     # generate prediction outputs, logits has shape BCHW
     if logits.shape[1]==1:
         return (logits[:,0]>=0).type(torch.IntTensor) # for binary segmentation threshold on channel 0
@@ -145,6 +149,7 @@ class KLDivLoss(_Loss):
         
     
 class ThresholdMask(torch.nn.Module):
+    '''Binary threshold layer which converts all values above the given threshold to 1 and all below to 0.'''
     def __init__(self,thresholdValue=0):
         super().__init__()
         self.threshold=nn.Threshold(thresholdValue,0)
@@ -274,29 +279,10 @@ class Convolution2D(nn.Sequential):
         
         if not convOnly:
             self.add_module('norm',normalizeFunc(outChannels))
-            if dropout>0: # perhaps unnecessary if dropout with 0 short-circuits
+            if dropout>0: # omitting Dropout2d appears faster than relying on it short-circuiting when dropout==0
                 self.add_module('dropout',nn.Dropout2d(dropout))
                 
             self.add_module('prelu',nn.modules.PReLU())
-    
-    
-#class ConvTranspose2D(nn.Sequential):
-#    def __init__(self,inChannels,outChannels,strides=1,kernelSize=3,instanceNorm=True,
-#                 dropout=0,bias=True,convOnly=False):
-#        super(ConvTranspose2D,self).__init__()
-#        self.inChannels=inChannels
-#        self.outChannels=outChannels
-#        padding=samePadding(kernelSize)
-#        normalizeFunc=nn.InstanceNorm2d if instanceNorm else nn.BatchNorm2d
-#        
-#        self.add_module('conv',nn.ConvTranspose2d(inChannels,outChannels,kernelSize,strides,padding,strides-1,bias=bias))
-#        
-#        if not convOnly:
-#            self.add_module('norm',normalizeFunc(outChannels))
-#            if dropout>0:
-#                self.add_module('dropout',nn.Dropout2d(dropout))
-#                
-#            self.add_module('prelu',nn.modules.PReLU())
         
 
 class ResidualUnit2D(nn.Module):

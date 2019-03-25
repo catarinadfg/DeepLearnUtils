@@ -5,6 +5,7 @@
 from __future__ import division, print_function
 import subprocess, re, time, platform, threading
 from collections import OrderedDict
+from itertools import product
 import inspect
 import numpy as np
 import matplotlib.pyplot as plt
@@ -271,6 +272,40 @@ def resizeCenter(img,*resizeDims):
     
     return dest
 
+
+def iterPatch(arr,patchSize,margins=(),startPos=(),copyBack=True,padMode='wrap'):
+    # ensure patchSize and margins are the right length
+    patchSize=(tuple(patchSize)+(None,)*arr.ndim)[:arr.ndim]
+    margins=(tuple(margins)+(0,)*arr.ndim)[:arr.ndim]
+    startPos=(tuple(startPos)+(0,)*arr.ndim)[:arr.ndim]
+    
+    # substitute sizes if None was specified in the patchSize (meaning full dimensions)
+    patchSize=tuple(p or arr.shape[i] for i,p in enumerate(patchSize))
+    
+#     windowSize=tuple(p+m*2 for p,m in zip(patchSize,margins))
+    
+    # pad image by maximum values needed to ensure patches are taken from inside an image
+    padWidth=tuple((p+m,)*2 for p,m in zip(patchSize,margins))
+    arrpad=np.pad(arr,padWidth,padMode)
+    
+    ranges=tuple(range(s+m+p,d+p,p) for p,m,s,d in zip(patchSize,margins,startPos,arr.shape))
+    
+    for position in product(*ranges[::-1]): # reverse ranges order to iterate in index order
+        slices=tuple(slice(s-m,s+p+m) for s,p,m in zip(position,patchSize,margins))
+        yield arrpad[slices]
+        
+    if copyBack:
+        slices=tuple(slice(w[0],w[0]+s) for w,s in zip(padWidth,arr.shape))
+        arr[...]=arrpad[slices]
+    
+#    for h in ranges[0]:
+#        for w in ranges[1]:
+#            patch=arrpad[h-margins[0]:h+patchSize[0]+margins[0],w-margins[1]:w+patchSize[1]+margins[1]]
+#            yield patch
+#            
+#    if copyBack:
+#        arr[...]=arrpad[padWidth[0][0]:padWidth[0][0]+arr.shape[0],padWidth[1][0]:padWidth[1][0]+arr.shape[1]]
+        
 
 def flatten4DVolume(im):
     '''Given a volume in HWDT ordering, reshape dimensions D and T to a single D dimension and reorder result axes to DHW.'''
@@ -566,9 +601,9 @@ if __name__=='__main__':
 #    plt.rcParams['figure.figsize']=[6,2]
 #    ax=plotSystemInfo()
     
-    src=np.random.randint(0,10,(6,6))
-    
-    print(src)
+#    src=np.random.randint(0,10,(6,6))
+#    
+#    print(src)
     
 #    print(cropCenter(src,3,3))
 #    print(cropCenter(src,10,10))
@@ -580,6 +615,12 @@ if __name__=='__main__':
 #    dest[destslices]=src[srcslices]
 #    print(dest)
     
-    print(resizeCenter(src,10,10))
-    print(resizeCenter(src,4,4))
-    print(resizeCenter(src,4,10))
+#    print(resizeCenter(src,10,10))
+#    print(resizeCenter(src,4,4))
+#    print(resizeCenter(src,4,10))
+    
+    im=np.zeros((64,64,3))
+    
+    for i,p in enumerate(iterPatch(im,(16,16))):
+        p[...]=i
+        
