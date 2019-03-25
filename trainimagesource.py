@@ -13,7 +13,7 @@ from scipy.ndimage.filters import gaussian_filter
 from scipy.interpolate import interp2d 
 
 from datasource import DataSource
-from trainutils import rescaleArray
+from trainutils import rescaleArray, randChoice, zeroMargins
     
 try:
     import queue
@@ -21,9 +21,9 @@ except:
     import Queue as queue
     
 
-def randChoice(prob=0.5):
-    '''Returns True if a randomly chosen number is less than or equal to `prob', by default this is a 50/50 chance.'''
-    return random.random()<=prob
+#def randChoice(prob=0.5):
+#    '''Returns True if a randomly chosen number is less than or equal to `prob', by default this is a 50/50 chance.'''
+#    return random.random()<=prob
 
 
 def imgBounds(img):
@@ -33,14 +33,14 @@ def imgBounds(img):
     return np.concatenate((np.where(ax0)[0][[0, -1]], np.where(ax1)[0][[0, -1]]))
 
     
-def inBounds(x,y,margin,maxx,maxy):
-    '''Returns True if (x,y) is within the rectangle (margin,margin,maxx-margin,maxy-margin).'''
-    return margin<=x<(maxx-margin) and margin<=y<(maxy-margin)
+#def inBounds(x,y,margin,maxx,maxy):
+#    '''Returns True if (x,y) is within the rectangle (margin,margin,maxx-margin,maxy-margin).'''
+#    return margin<=x<(maxx-margin) and margin<=y<(maxy-margin)
     
     
-def zeroMargins(img,margin):
-    '''Returns True if the values within `margin' indices of the edges of `img' are 0.'''
-    return img.max()>img.min() and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
+#def zeroMargins(img,margin):
+#    '''Returns True if the values within `margin' indices of the edges of `img' are 0.'''
+#    return img.max()>img.min() and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
 
 
 def shiftMaskAugment(img,mask,margin=5,prob=0.5,dimfract=2,order=3,maxcount=10):

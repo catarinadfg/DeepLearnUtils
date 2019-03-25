@@ -3,7 +3,7 @@
 
 
 from __future__ import division, print_function
-import subprocess, re, time, platform, threading
+import subprocess, re, time, platform, threading, random
 from collections import OrderedDict
 from itertools import product
 import inspect
@@ -17,6 +17,33 @@ isWindows=platform.system().lower()=='windows'
 gpunames=re.compile('\|\s+\d+\s+([a-zA-Z][^\|]+) O[nf][f ]')
 gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
 gpuload=re.compile('MiB\s*\|\s*(\d+)\%')
+
+
+def randChoice(prob=0.5):
+    '''Returns True if a randomly chosen number is less than or equal to `prob', by default this is a 50/50 chance.'''
+    return random.random()<=prob
+
+
+def imgBounds(img):
+    '''Returns the minimum and maximum indices of non-zero lines in axis 0 of `img', followed by that for axis 1.'''
+    ax0 = np.any(img, axis=0)
+    ax1 = np.any(img, axis=1)
+    return np.concatenate((np.where(ax0)[0][[0, -1]], np.where(ax1)[0][[0, -1]]))
+
+    
+def inBounds(x,y,margin,maxx,maxy):
+    '''Returns True if (x,y) is within the rectangle (margin,margin,maxx-margin,maxy-margin).'''
+    return margin<=x<(maxx-margin) and margin<=y<(maxy-margin)
+    
+    
+def isEmpty(img):
+    '''Returns True if `img' is empty, that is its maximum value is not greater than its minimum.'''
+    return not (img.max()>img.min()) # use > instead of <= so that an image full of NaNs will result in True
+
+
+def zeroMargins(img,margin):
+    '''Returns True if the values within `margin' indices of the edges of `img' are 0.'''
+    return not isEmpty(img) and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
 
 
 def applyArgMap(func,*posargs,**kwargs):
