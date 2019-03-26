@@ -284,7 +284,7 @@ def copypasteArrays(src,dest,srccenter,destcenter,dims):
     return tuple(srcslices), tuple(destslices)
 
 
-def resizeCenter(img,*resizeDims):
+def resizeCenter(img,*resizeDims,fillValue=0):
     '''
     Resize `img' by cropping or expanding the image from the center. The `resizeDims' values are the output dimensions
     (or None to use original dimension of `img'). If a dimension is smaller than that of `img' then the result will be
@@ -294,6 +294,7 @@ def resizeCenter(img,*resizeDims):
     resizeDims=tuple(resizeDims[i] or img.shape[i] for i in range(len(resizeDims)))
     
     dest=np.zeros(resizeDims,img.dtype)
+    dest[:]=fillValue
     srcslices,destslices=copypasteArrays(img,dest,np.asarray(img.shape)//2,np.asarray(dest.shape)//2,resizeDims)
     dest[destslices]=img[srcslices]
     
