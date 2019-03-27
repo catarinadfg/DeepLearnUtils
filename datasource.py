@@ -158,7 +158,7 @@ class DataSource(object):
         with self.localBatchGen(batchSize) as gen:
             augs=tuple(map(toShared,gen()))
         
-        inArrays=tuple(map(toShared,self.getRandomBatch(batchSize)))
+        inArrays=tuple(map(toShared,self.getIndexBatch(np.arange(batchSize))))
         
         maugs=self.augments
         initargs=(inArrays,augs,maugs)
