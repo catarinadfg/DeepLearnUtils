@@ -186,10 +186,11 @@ def createTestImage(width,height,numObjs=12,radMax=30,noiseMax=0.0,numSegClasses
         else:
             image[circle]=np.random.random()*0.5+0.5
     
+    labels=np.ceil(image).astype(np.int32)
+
     norm=np.random.uniform(0,numSegClasses*noiseMax,size=image.shape)
     noisyimage=rescaleArray(np.maximum(image,norm))
     
-    labels=image.astype(np.int32)
     
     return noisyimage,labels
 

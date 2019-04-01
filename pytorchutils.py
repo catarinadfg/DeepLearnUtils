@@ -7,6 +7,7 @@ import os
 import glob
 import time
 import datetime
+import threading
 
 import torch
 import pytorchnet
@@ -80,6 +81,7 @@ class NetworkManager(object):
         self.netoutputs=None
         self.lossoutput=None
         self.isRunning=True
+        self.lock=threading.RLock()
         
         self.savedir=None
         self.savePrefix=savePrefix
@@ -241,16 +243,17 @@ class NetworkManager(object):
                 self.log('Timestep',s,'/',steps)
                 self.step+=1
                 
-                self.traininputs=[self.convertArray(arr) for arr in inputfunc()] 
-                self.trainStep(substeps)
-            
-                lossval=self.lossoutput.item()
-                self.log('Loss:',lossval)
-                self.updateStep(s,lossval)
-                self.params['loss']=lossval
-            
-                if self.savedir and savesteps>0 and (not self.isRunning or s==steps or (s%(steps//savesteps))==0):
-                    self.saveStep(self.step,lossval)
+                with self.lock:
+                    self.traininputs=[self.convertArray(arr) for arr in inputfunc()] 
+                    self.trainStep(substeps)
+                
+                    lossval=self.lossoutput.item()
+                    self.log('Loss:',lossval)
+                    self.updateStep(s,lossval)
+                    self.params['loss']=lossval
+                
+                    if self.savedir and savesteps>0 and (not self.isRunning or s==steps or (s%(steps//savesteps))==0):
+                        self.saveStep(self.step,lossval)
                     
                 if not self.isRunning:
                     break
@@ -288,16 +291,17 @@ class NetworkManager(object):
             
             with torch.no_grad():
                 for i in range(0,inputlen,batchSize):
-                    self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
-                    self.netoutputs=self.netForward()
-                    self.lossoutput=self.lossForward()
-                    losses.append(self.lossoutput.item())
-
-                    self.evalStep(i,losses[-1],results)
-                    # clear stored variables to free graph
-                    self.traininputs=None
-                    self.netoutputs=None
-                    self.lossoutput=None
+                    with self.lock:
+                        self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
+                        self.netoutputs=self.netForward()
+                        self.lossoutput=self.lossForward()
+                        losses.append(self.lossoutput.item())
+    
+                        self.evalStep(i,losses[-1],results)
+                        # clear stored variables to free graph
+                        self.traininputs=None
+                        self.netoutputs=None
+                        self.lossoutput=None
                 
         except Exception as e:
             self.log(e)
@@ -334,16 +338,17 @@ class NetworkManager(object):
                 
             with torch.no_grad():
                 for i in range(0,inputlen,batchSize):
-                    self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
-                    self.netoutputs=self.netForward()
-
-                    if isinstance(self.netoutputs,(tuple,list)):
-                        results.append(tuple(map(self.toNumpy, self.netoutputs)))
-                    else:
-                        results.append(self.toNumpy(self.netoutputs))
-
-                    self.traininputs=None
-                    self.netoutputs=None
+                    with self.lock:
+                        self.traininputs=[self.convertArray(arr[i:i+batchSize]) for arr in inputs]
+                        self.netoutputs=self.netForward()
+    
+                        if isinstance(self.netoutputs,(tuple,list)):
+                            results.append(tuple(map(self.toNumpy, self.netoutputs)))
+                        else:
+                            results.append(self.toNumpy(self.netoutputs))
+    
+                        self.traininputs=None
+                        self.netoutputs=None
 
             return results
         finally:

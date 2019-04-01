@@ -4,80 +4,72 @@
 from __future__ import division, print_function
 from functools import partial,wraps
 import numpy as np
-from scipy.ndimage import shift,zoom,rotate,map_coordinates
+import scipy.ndimage
+import scipy.fftpack as ft
 
 import trainutils
-
-
-def randChoiceAugment(func):
-    '''
-    Modify an augment to add a random choice parameter which chooses based on the keyword argument `prob' whether to
-    apply the augment or just return the positional arguments. The default for `prob' is 0.5 (ie. coin-toss).
-    '''
-    @wraps(func)
-    def _func(*args,**kwargs):
-        prob=kwargs.pop('prob',0.5)
         
-        if not trainutils.randChoice(prob):
-            return args
-        else:
-            return func(*args,**kwargs)
-        
-    if _func.__doc__:
-        _func.__doc__+='\n\nKeyword arg "prob": probability of applying this augment (default: 0.5)'
-        
-    return _func
 
-
-def applyOpAugment(func):
+def augment(prob=0.5,applyIndices=None):
     '''
-    Modify an augment which is expected to return a callable that is then applied to each of the position arguments 
-    indexed in keyword argument `applyIndices'. The return values from these applications are then returned. The default 
-    for `applyIndices' is None meaning apply the callable to each argument.
+    Creates an augmentation function when applied to a function returning an array modifying callable. The function this
+    is applied to is given the list of input arrays as positional arguments and then should return a callable operation
+    which performs the augmentation. This wrapper then chooses whether to apply the operation to the arguments and if so
+    to which ones. The `prob' argument states the probability the augment is applied, and `applyIndices' gives indices of
+    the arrays to apply to (or None for all). The arguments are also keyword arguments in the resulting augment function.
     '''
-    @wraps(func)
-    def _func(*args,**kwargs):
-        applyIndices=kwargs.pop('applyIndices',None)
-        op=func(*args,**kwargs)
-        indices=list(applyIndices or range(len(args)))
+    def _inner(func):
+        @wraps(func)
+        def _func(*args,**kwargs):
+            _prob=kwargs.pop('prob',prob)
+            
+            if _prob<1.0 and not trainutils.randChoice(_prob):
+                return args
+            
+            _applyIndices=kwargs.pop('applyIndices',applyIndices)
+            
+            op=func(*args,**kwargs)
+            indices=list(_applyIndices or range(len(args)))
+            
+            return tuple((op(im) if i in indices else im) for i,im in enumerate(args))
         
-        return tuple((op(im) if i in indices else im) for i,im in enumerate(args))
+        if _func.__doc__:
+            _func.__doc__+='''
+            
+Keyword arg "prob": probability of applying this augment (default: 0.5)
+Keyword arg "applyIndices": indices of arrays to apply augment to (default: None meaning all)
+'''        
+        return _func
     
-    if _func.__doc__:
-        _func.__doc__+='\n\nKeyword arg "applyIndices": indices of arrays to apply augment to (default: None meaning all)'
-    
-    return _func
-        
+    return _inner
+            
 
-@randChoiceAugment
-@applyOpAugment
-def transposeAugment(*arrs):
+@augment()
+def transpose(*arrs):
     '''Transpose axes 0 and 1 for each of `arrs'.'''
     return partial(np.swapaxes,axis1=0,axis2=1)
 
 
-@randChoiceAugment
-@applyOpAugment
-def flipAugment(*arrs):
+@augment()
+def flip(*arrs):
     '''Flip each of `arrs' with a random choice of up-down or left-right.'''
     return np.fliplr if trainutils.randChoice() else np.flipud
 
 
-@randChoiceAugment
-@applyOpAugment
-def rot90Augment(*arrs):
+@augment()
+def rot90(*arrs):
     '''Rotate each of `arrs' a random choice of quarter, half, or three-quarter circle rotations.'''
     return partial(np.rot90,k=np.random.randint(1,3))
         
 
-@applyOpAugment
-def normalizeAugment(*arrs):
+@augment(prob=1.0)
+def normalize(*arrs):
     '''Normalize each of `arrs'.'''
     return trainutils.rescaleArray
 
 
-@applyOpAugment
-def randPatchAugment(*arrs,patchSize=(32,32),maxcount=10, nonzeroIndex=-1):
+@augment(prob=1.0)
+def randPatch(*arrs,patchSize=(32,32),maxcount=10, nonzeroIndex=-1):
     '''
     Randomly choose a patch from `arrs' of dimensions `patchSize'. if `nonzeroIndex' is not -1, the patch will be chosen 
     so that the image at index `nonzeroIndex' has positive non-zero pixels in it, this can be used to ensure the chosen 
@@ -100,9 +92,8 @@ def randPatchAugment(*arrs,patchSize=(32,32),maxcount=10, nonzeroIndex=-1):
     return lambda im: im[ry:ry+ph,rx:rx+pw]
 
 
-@randChoiceAugment
-@applyOpAugment
-def shiftAugment(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1):
+@augment()
+def shift(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1):
     '''Shift arrays randomly by `dimfract' fractions of the array dimensions.'''
     testim=arrs[nonzeroIndex]
     x,y=testim.shape[:2]
@@ -112,7 +103,7 @@ def shiftAugment(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1)
     
     def _shift(im):
         sval=(shiftx,shifty)+tuple(0 for _ in range(2,im.ndim))
-        return shift(im,sval,order=order)
+        return scipy.ndimage.shift(im,sval,order=order)
     
     if nonzeroIndex!=-1:
         for i in range(maxcount):
@@ -126,14 +117,13 @@ def shiftAugment(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1)
     return _shift
 
 
-@randChoiceAugment
-@applyOpAugment
-def rotateAugment(*arrs,margin=5,maxcount=10,nonzeroIndex=-1):
+@augment()
+def rotate(*arrs,margin=5,maxcount=10,nonzeroIndex=-1):
     '''Shift arrays randomly around the array center.'''
     
     angle=np.random.random()*360
     
-    _rotate=partial(rotate,angle=angle,reshape=False)
+    _rotate=partial(scipy.ndimage.rotate,angle=angle,reshape=False)
     
     if nonzeroIndex!=-1:
         testim=arrs[nonzeroIndex]
@@ -148,9 +138,8 @@ def rotateAugment(*arrs,margin=5,maxcount=10,nonzeroIndex=-1):
     return _rotate
 
 
-@randChoiceAugment
-@applyOpAugment
-def zoomAugment(*arrs,margin=5,zoomrange=0.2,maxcount=10,nonzeroIndex=-1):
+@augment()
+def zoom(*arrs,margin=5,zoomrange=0.2,maxcount=10,nonzeroIndex=-1):
     '''Return the image/mask pair zoomed by a random amount with the mask kept within `margin' pixels of the edges.'''
     
     z=zoomrange-np.random.random()*zoomrange*2
@@ -158,7 +147,7 @@ def zoomAugment(*arrs,margin=5,zoomrange=0.2,maxcount=10,nonzeroIndex=-1):
     zy=z+1.0+zoomrange*0.25-np.random.random()*zoomrange*0.5
         
     def _zoom(im):
-        ztemp=zoom(im,(zx,zy)+tuple(1 for _ in range(2,im.ndim)),order=2)
+        ztemp=scipy.ndimage.zoom(im,(zx,zy)+tuple(1 for _ in range(2,im.ndim)),order=2)
         return trainutils.resizeCenter(ztemp,*im.shape)
     
     if nonzeroIndex!=-1:
@@ -176,9 +165,8 @@ def zoomAugment(*arrs,margin=5,zoomrange=0.2,maxcount=10,nonzeroIndex=-1):
     return _zoom
 
   
-@randChoiceAugment
-@applyOpAugment
-def deformAugmentPIL(*arrs,defrange=25,numControls=3,margin=2):
+@augment()
+def deformPIL(*arrs,defrange=25,numControls=3,margin=2):
     '''Deforms arrays randomly with a deformation grid of size `numControls'**2 with `margins' grid values fixed.'''
     from PIL import Image
     
@@ -194,8 +182,8 @@ def deformAugmentPIL(*arrs,defrange=25,numControls=3,margin=2):
     indices=np.reshape(x+imshiftx, (-1, 1)),np.reshape(y+imshifty, (-1, 1))
 
     def _mapChannels(im):
-        if len(im.shape)==2:
-            result=map_coordinates(im,indices, order=1, mode='constant')
+        if im.ndim==2:
+            result=scipy.ndimage.map_coordinates(im,indices, order=1, mode='constant')
         else:
             result=np.concatenate([_mapChannels(im[...,i]) for i in range(im.shape[-1])])
             
@@ -204,26 +192,49 @@ def deformAugmentPIL(*arrs,defrange=25,numControls=3,margin=2):
     return _mapChannels
 
 
+@augment()
+def distortFFT(*arrs,minDist=0.1,maxDist=1.0):
+    '''Distorts arrays by applying dropout in k-space with a per-pixel probability based on distance from center.'''
+    h,w=arrs[0].shape[:2]
+
+    x,y=np.meshgrid(np.linspace(-1,1,h),np.linspace(-1,1,w))
+    probfield=np.sqrt(x**2+y**2)
+    
+    if arrs[0].ndim==3:
+        probfield=np.repeat(probfield[...,np.newaxis],arrs[0].shape[2],2)
+    
+    dropout=np.random.uniform(minDist,maxDist,arrs[0].shape)>probfield
+
+    def _distort(im):
+        im=ft.fft2(im)
+        im=ft.fftshift(im)
+        im=im*dropout
+        im=ft.ifft2(im)
+        im=np.abs(im)
+        return im
+    
+    return _distort
+
 
 if __name__=='__main__':
     
-    im=np.random.rand(128,128)
+    im=np.random.rand(128,128,1)
     
-    imt=transposeAugment(im,prob=1.0)
+    imt=transpose(im,prob=1.0)
     print(np.all(im.T==imt[0]))
     
-    imf=flipAugment(im,prob=1.0)
-    imr=rot90Augment(im,prob=1.0)
+    imf=flip(im,prob=1.0)
+    imr=rot90(im,prob=1.0)
     
-    im=np.random.rand(128,128)
+    print(randPatch(im,patchSize=(30,34))[0].shape)
     
-    print(randPatchAugment(im,patchSize=(30,34))[0].shape)
+    print(shift(im,prob=1.0)[0].shape)
     
-    print(shiftAugment(im,prob=1.0)[0].shape)
+    print(rotate(im,prob=1.0)[0].shape)
     
-    print(rotateAugment(im,prob=1.0)[0].shape)
+    print(zoom(im,prob=1.0)[0].shape)
     
-    print(zoomAugment(im,prob=1.0)[0].shape)
+    print(deformPIL(im,prob=1.0)[0].shape)
     
-    print(deformAugmentPIL(im,prob=1.0)[0].shape)
+    print(distortFFT(im,prob=1.0)[0].shape)
     
