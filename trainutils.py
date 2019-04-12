@@ -19,6 +19,21 @@ gpumem=re.compile('(\d+)MiB\s*/\s*(\d+)MiB')
 gpuload=re.compile('MiB\s*\|\s*(\d+)\%')
 
 
+def loadURLMod(url,name=None):
+    '''
+    Import a module named `name' from the source file URL `url'. If `name' is None the name is derived from the filename
+    in `url'. The new module is added to sys.modules and returned.
+    '''
+    import types,urllib,sys,os
+    
+    name=name or os.path.splitext(os.path.basename(url))[0]
+    code=urllib.request.urlopen(url).read().decode()
+    mod=types.ModuleType(name)
+    sys.modules[name]=mod
+    exec(code,mod.__dict__)
+    return mod
+
+
 def randChoice(prob=0.5):
     '''Returns True if a randomly chosen number is less than or equal to `prob', by default this is a 50/50 chance.'''
     return random.random()<=prob

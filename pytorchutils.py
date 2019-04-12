@@ -11,9 +11,9 @@ import threading
 
 import torch
 import pytorchnet
+import augments
 import datasource
 import numpy as np
-
 
 def convertAug(images,out):
     '''Convert `images' and `out' to CH[W] format, assuming `images' is HWC and `out' is H[W].'''
@@ -27,6 +27,11 @@ def convertFirst(images,out):
 
 def convertBoth(images,out):
     return images.transpose([2,0,1]), out.transpose([2,0,1])
+
+
+@augments.augment(prob=1.0)
+def convert(*arrs):
+    return lambda im:im.transpose([2,0,1])
 
 
 class SimpleTrainer(object):

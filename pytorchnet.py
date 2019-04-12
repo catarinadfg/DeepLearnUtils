@@ -38,7 +38,7 @@ def calculateOutShape(inShape,kernelSize,stride,padding):
     '''
     Calculate the output tensor shape when applying a convolution to a tensor of shape `inShape' with kernel size 
     'kernelSize', stride value `stride', and input padding value `padding'. All arguments can be scalars or multiple
-    values, return value is a scalar if 
+    values, return value is a scalar if all inputs are scalars.
     '''
     inShape=np.atleast_1d(inShape)
     outShape=((inShape-kernelSize+padding+padding)//stride) +1
@@ -76,7 +76,7 @@ def predictSegmentation(logits):
     Given the logits from a network, computing the segmentation by thresholding all values above 0 if `logits' has one
     channel, or computing the argmax along the channel axis otherwise.
     '''
-    # generate prediction outputs, logits has shape BCHW
+    # generate prediction outputs, logits has shape BCHW[D]
     if logits.shape[1]==1:
         return (logits[:,0]>=0).type(torch.IntTensor) # for binary segmentation threshold on channel 0
     else:
@@ -447,7 +447,7 @@ class AutoEncoder(nn.Module):
         layerChannels=inChannels
         
         for i,(c,s) in enumerate(zip(channels,strides)):
-            layer=self._getEncodeLayer(layerChannels,c,s)
+            layer=self._getEncodeLayer(layerChannels,c,s,False)
             encode.add_module('encode_%i'%i,layer)
             layerChannels=c
             
@@ -480,12 +480,12 @@ class AutoEncoder(nn.Module):
             
         return decode,layerChannels
 
-    def _getEncodeLayer(self,inChannels,outChannels,strides):
+    def _getEncodeLayer(self,inChannels,outChannels,strides,isLast):
         if self.numResUnits>0:
             return ResidualUnit2D(inChannels,outChannels,strides,self.kernelSize,
-                                  self.numResUnits,self.instanceNorm,self.dropout)
+                                  self.numResUnits,self.instanceNorm,self.dropout,lastConvOnly=isLast)
         else:
-            return Convolution2D(inChannels,outChannels,strides,self.kernelSize,self.instanceNorm,self.dropout)
+            return Convolution2D(inChannels,outChannels,strides,self.kernelSize,self.instanceNorm,self.dropout,convOnly=isLast)
     
     def _getDecodeLayer(self,inChannels,outChannels,strides,isLast):
         conv=Convolution2D(inChannels,outChannels,strides,self.upKernelSize,
