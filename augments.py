@@ -35,9 +35,10 @@ def augment(prob=0.5,applyIndices=None):
         
         if _func.__doc__:
             _func.__doc__+='''
-            
-Keyword arg "prob": probability of applying this augment (default: 0.5)
-Keyword arg "applyIndices": indices of arrays to apply augment to (default: None meaning all)
+       
+Added keyword arguments:
+    prob: probability of applying this augment (default: 0.5)
+    applyIndices: indices of arrays to apply augment to (default: None meaning all)
 '''        
         return _func
     
@@ -97,13 +98,19 @@ def shift(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1):
     '''Shift arrays randomly by `dimfract' fractions of the array dimensions.'''
     testim=arrs[nonzeroIndex]
     x,y=testim.shape[:2]
-    seg=testim.astype(np.int)
     shiftx=np.random.randint(-x//dimfract,x//dimfract)
     shifty=np.random.randint(-y//dimfract,y//dimfract)
     
     def _shift(im):
-        sval=(shiftx,shifty)+tuple(0 for _ in range(2,im.ndim))
-        return scipy.ndimage.shift(im,sval,order=order)
+#         sval=(shiftx,shifty)+tuple(0 for _ in range(2,im.ndim))
+#         return scipy.ndimage.shift(im,sval,order=order)
+        h,w=im.shape[:2]
+        dest=np.zeros_like(im)
+
+        srcslices,destslices=trainutils.copypasteArrays(im,dest,(h//2+shiftx,w//2+shifty),(h//2,w//2),(h,w))
+        dest[destslices]=im[srcslices]
+        
+        return dest
     
     if nonzeroIndex!=-1:
         for i in range(maxcount):
@@ -164,6 +171,51 @@ def zoom(*arrs,margin=5,zoomrange=0.2,maxcount=10,nonzeroIndex=-1):
             
     return _zoom
 
+
+@augment()
+def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0,maxcount=10, nonzeroIndex=-1):
+    from PIL import Image
+    
+    testim=arrs[0]
+    x,y=testim.shape[:2]
+    
+    angle=np.random.random()*360
+    zoomx=x+np.random.randint(-x//dimfract,x//dimfract)
+    zoomy=y+np.random.randint(-y//dimfract,y//dimfract)
+    
+    filters=(Image.NEAREST,Image.ANTIALIAS ,Image.LINEAR,Image.BICUBIC)
+    
+    def _trans(im):
+        if im.dtype!=np.float32:
+            return _trans(im.astype(np.float32)).astype(im.dtype)
+        elif im.ndim==2:
+            im=Image.fromarray(im)
+            
+            # rotation
+            im=im.rotate(angle,filters[resample])
+
+            # zoom
+            zoomsize=(zoomx,zoomy)
+            newim=Image.new('F',im.size)
+            newim.paste(im.resize(zoomsize,filters[resample]),(im.size[0]//2-zoomsize[0]//2,im.size[1]//2-zoomsize[1]//2))
+            im=newim
+            
+            return np.array(im)
+        else:
+            return np.dstack([_trans(im[...,i]) for i in range(im.shape[-1])])
+    
+    if nonzeroIndex!=-1:
+        for i in range(maxcount):
+            seg=_trans(testim).astype(np.int32)
+            if trainutils.zeroMargins(seg,margin):
+                break
+            
+            angle=np.random.random()*360
+            zoomx=x+np.random.randint(-x//dimfract,x//dimfract)
+            zoomy=y+np.random.randint(-y//dimfract,y//dimfract)
+            
+    return _trans
+
   
 @augment()
 def deformPIL(*arrs,defrange=25,numControls=3,margin=2):
@@ -184,10 +236,11 @@ def deformPIL(*arrs,defrange=25,numControls=3,margin=2):
     def _mapChannels(im):
         if im.ndim==2:
             result=scipy.ndimage.map_coordinates(im,indices, order=1, mode='constant')
+            result=result.reshape(im.shape)
         else:
-            result=np.concatenate([_mapChannels(im[...,i]) for i in range(im.shape[-1])])
+            result=np.dstack([_mapChannels(im[...,i]) for i in range(im.shape[-1])])
             
-        return result.reshape(im.shape)
+        return result
     
     return _mapChannels
 

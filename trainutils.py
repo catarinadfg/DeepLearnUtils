@@ -309,8 +309,7 @@ def resizeCenter(img,*resizeDims,fillValue=0):
     '''
     resizeDims=tuple(resizeDims[i] or img.shape[i] for i in range(len(resizeDims)))
     
-    dest=np.zeros(resizeDims,img.dtype)
-    dest[:]=fillValue
+    dest=np.full(resizeDims,fillValue,img.dtype)
     srcslices,destslices=copypasteArrays(img,dest,np.asarray(img.shape)//2,np.asarray(dest.shape)//2,resizeDims)
     dest[destslices]=img[srcslices]
     

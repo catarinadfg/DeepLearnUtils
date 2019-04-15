@@ -199,7 +199,7 @@ class NetworkManager(object):
     
     def toNumpy(self,arr):
         '''Convert the PyTorch Tensor `arr' to a Numpy array.'''
-        return arr.cpu().data.numpy()
+        return arr.to('cpu').data.numpy()
     
     def trainStep(self,numSubsteps):
         '''
