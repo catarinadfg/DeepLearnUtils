@@ -102,8 +102,6 @@ def shift(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1):
     shifty=np.random.randint(-y//dimfract,y//dimfract)
     
     def _shift(im):
-#         sval=(shiftx,shifty)+tuple(0 for _ in range(2,im.ndim))
-#         return scipy.ndimage.shift(im,sval,order=order)
         h,w=im.shape[:2]
         dest=np.zeros_like(im)
 
