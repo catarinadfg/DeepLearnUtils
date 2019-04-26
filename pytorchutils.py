@@ -36,24 +36,24 @@ def convert(*arrs):
 
 class SimpleTrainer(object):
     def __init__(self,steps,net,loss,opt=None):
-        self.steps=steps
-        self.step=0
-        self.net=net
-        self._loss=loss
-        self.lossval=None
-        self.opt=opt or torch.optim.Adam(net.parameters())
-        
-    def loss(self,*args,**kwargs):
-        self.lossval=self._loss(*args,**kwargs)
+        self.steps = steps
+        self.step = 0
+        self.net = net
+        self._loss = loss
+        self.lossval = None
+        self.opt = opt or torch.optim.Adam(net.parameters())
+
+    def loss(self, *args, **kwargs):
+        self.lossval = self._loss(*args, **kwargs)
         return self.lossval.item()
-    
+
     def __str__(self):
-        lval=self.lossval.item() if self.lossval else float('nan')
-        return 'Trainer(Step: %i, Loss: %f)'%(self.step,lval)
-        
+        lval = self.lossval.item() if self.lossval else float('nan')
+        return 'Trainer(Step: %i, Loss: %f)' % (self.step, lval)
+
     def __iter__(self):
-        while self.step<self.steps:
-            self.step+=1
+        while self.step < self.steps:
+            self.step += 1
             self.opt.zero_grad()
             yield self
             self.lossval.backward()

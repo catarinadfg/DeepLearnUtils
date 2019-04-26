@@ -216,7 +216,7 @@ def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0,maxcount=10, nonzeroIndex
 
   
 @augment()
-def deformPIL(*arrs,defrange=25,numControls=3,margin=2):
+def deformPIL(*arrs,defrange=25,numControls=3,margin=2,mapOrder=1):
     '''Deforms arrays randomly with a deformation grid of size `numControls'**2 with `margins' grid values fixed.'''
     from PIL import Image
     
@@ -233,7 +233,7 @@ def deformPIL(*arrs,defrange=25,numControls=3,margin=2):
 
     def _mapChannels(im):
         if im.ndim==2:
-            result=scipy.ndimage.map_coordinates(im,indices, order=1, mode='constant')
+            result=scipy.ndimage.map_coordinates(im,indices, order=mapOrder, mode='constant')
             result=result.reshape(im.shape)
         else:
             result=np.dstack([_mapChannels(im[...,i]) for i in range(im.shape[-1])])
@@ -257,14 +257,36 @@ def distortFFT(*arrs,minDist=0.1,maxDist=1.0):
     dropout=np.random.uniform(minDist,maxDist,arrs[0].shape)>probfield
 
     def _distort(im):
-        im=ft.fft2(im)
-        im=ft.fftshift(im)
-        im=im*dropout
-        im=ft.ifft2(im)
-        im=np.abs(im)
-        return im
+        if im.ndim==2:
+            result=ft.fft2(im)
+            result=ft.fftshift(result)
+            result=result*dropout[:,:,0]
+            result=ft.ifft2(result)
+            result=np.abs(result)
+        else:
+            result=np.dstack([_distort(im[...,i]) for i in range(im.shape[-1])])
+            
+        return result
     
     return _distort
+
+
+def splitSegmentation(*arrs,numLabels=2,segIndex=-1):
+    arrs=list(arrs)
+    seg=arrs[segIndex]
+    seg=trainutils.oneHot(seg,numLabels)
+    arrs[segIndex]=seg
+    
+    return tuple(arrs)
+
+
+def mergeSegmentation(*arrs,segIndex=-1):
+    arrs=list(arrs)
+    seg=arrs[segIndex]
+    seg=np.argmax(seg,2)
+    arrs[segIndex]=seg
+    
+    return tuple(arrs)
 
 
 if __name__=='__main__':

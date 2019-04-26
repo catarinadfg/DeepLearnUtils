@@ -8,6 +8,7 @@ from collections import OrderedDict
 from itertools import product
 import inspect
 import numpy as np
+import scipy
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import matplotlib.animation as animation
@@ -58,7 +59,13 @@ def isEmpty(img):
 
 def zeroMargins(img,margin):
     '''Returns True if the values within `margin' indices of the edges of `img' are 0.'''
-    return not isEmpty(img) and not np.any(img[:,:margin]+img[:,-margin:]) and not np.any(img[:margin,:]+img[-margin:,:])
+    if np.any(img[:,:margin]) or np.any(img[:,-margin:]):
+        return False
+    
+    if np.any(img[:margin,:]) or np.any(img[-margin:,:]):
+        return False
+    
+    return True
 
 
 def applyArgMap(func,*posargs,**kwargs):
@@ -238,14 +245,40 @@ def rescaleArrayIntMax(arr,dtype=np.uint16):
     '''Rescale the array `arr' to be between the minimum and maximum values of the type `dtype'.'''
     info=np.iinfo(dtype)
     return rescaleArray(arr,info.min,info.max).astype(dtype)
+
+
+def getLargestMaskObject(mask):
+    '''Given a numpy array `mask' containing a binary mask, returns an equivalent array with only the largest mask object.'''
+    labeled,numfeatures=scipy.ndimage.label(mask) # generate a feature label
+    sums=scipy.ndimage.sum(mask,labeled,list(range(numfeatures+1))) # sum the pixels under each label
+    maxfeature=np.where(sums==max(sums)) # choose the maximum sum whose index will be the label number
     
+    return mask*(labeled==maxfeature)
+    
+
+def generateMaskConvexHull(mask):
+    '''Returns a convex hull mask image covering the non-zero values in 2D/3D image `mask'.'''
+    origshape=mask.shape
+    mask=np.squeeze(mask) # if a 2D image is presented as a 3D image with depth 1 this must be compressed
+    region=np.argwhere(mask>0) # select non-zero points on the mask image
+    
+    if region.shape[0]==0: # an empty mask produces an empty hull
+        return np.zeros(origshape,mask.dtype)
+    
+    hull=scipy.spatial.ConvexHull(region) # define the convex hull
+    de=scipy.spatial.Delaunay(region[hull.vertices]) # define a triangulation of the hull
+    simplexpts=de.find_simplex(np.argwhere(mask==mask)) # do an inclusion test for every point of the mask
+    
+    # reshape the points to the original's shape and mask by valid values
+    return (simplexpts.reshape(origshape)!=-1).astype(mask.dtype) 
+
     
 def cropCenter(img,*cropDims):
     '''
-    Crop the center of the given array `img' to produce an array with dimensions `cropDims'. For each axis i in `img', 
-    the result will have the dimension size given in cropDims[i]. If cropDims[i] is None or cropDims[i] is beyond the 
-    length of `cropDims', the original dimension size is retained. Eg. cropCenter(np.zeros((10,20,20)),None,15,30)
-    will return an array of dimensions (10,15,20).
+    Crop the center of the given array `img' to produce an array with dimensions at most `cropDims'. For each axis i in 
+    `img', the result will have the dimension size given in cropDims[i] or the original dimension if this issmaller. 
+    If cropDims[i] is None or cropDims[i] is beyond the length of `cropDims', the original dimension size is retained. 
+    Eg. cropCenter(np.zeros((10,20,20)),None,15,30) will return an array of dimensions (10,15,20).
     '''
     slices=[slice(None) for _ in range(img.ndim)]
     
@@ -653,8 +686,10 @@ if __name__=='__main__':
 #    print(resizeCenter(src,4,10))
     
     im=np.zeros((64,80,3))
-    
-    for i,p in enumerate(iterPatch(im,(4,4))):
-        print(p.shape)
-        p[...]=i
+#    
+#    for i,p in enumerate(iterPatch(im,(4,4))):
+#        print(p.shape)
+#        p[...]=i
+        
+    print(zeroMargins(im,5))
         

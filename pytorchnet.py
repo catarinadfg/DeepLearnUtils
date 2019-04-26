@@ -95,33 +95,34 @@ class DiceLoss(_Loss):
     size they can get overwhelmed by the signal from the background so excluding it in such cases helps convergence.
     '''
     
-    includeBackground=True # set to False to exclude the background category (channel index 0) from the loss calculation
-        
+    includeBackground = True  # set to False to exclude the background category (channel index 0) from the loss calculation
+
     def forward(self, source, target, smooth=1e-5):
-        assert target.shape[1]==1,'Target should have only a single channel, shape is '+str(target.shape)
-        
-        if source.shape[1]==1: # binary dice loss, use sigmoid activation
-            psum=source.float().sigmoid()
-            tsum=target
+        assert target.shape[1] == 1, 'Target should have only a single channel, shape is ' + str(target.shape)
+
+        if source.shape[1] == 1:  # binary dice loss, use sigmoid activation
+            psum = source.float().sigmoid()
+            tsum = target
         else:
             # multiclass dice loss, use softmax in the first dimension and convert target to one-hot encoding
-            psum=F.softmax(source,1)
-            tsum=oneHot(target,source.shape[1]) # BCHW -> BCHWN
-            tsum=tsum[:,0].permute(0,3,1,2).contiguous() # BCHWN -> BNHW
-            
-            assert tsum.shape==source.shape,'One-hot encoding of target has differing shape from source'
-            
+            psum = F.softmax(source, 1)
+            tsum = oneHot(target, source.shape[1])  # BCHW -> BCHWN
+            tsum = tsum[:, 0].permute(0, 3, 1, 2).contiguous()  # BCHWN -> BNHW
+
+            assert tsum.shape == source.shape, 'One-hot encoding of target has differing shape from source'
+
             # exclude background category so that it doesn't overwhelm the other segmentations if they are small
             if not self.includeBackground:
-                tsum=tsum[:,1:]
-                psum=psum[:,1:]
-                source=source[:,1:]
-        
+                tsum = tsum[:, 1:]
+                psum = psum[:, 1:]
+                source = source[:, 1:]
+
         batchsize = target.size(0)
         tsum = tsum.float().view(batchsize, -1)
         psum = psum.view(batchsize, -1)
-        intersection=psum*tsum
-        sums=psum+tsum
+        
+        intersection = psum * tsum
+        sums = psum + tsum
 
         score = 2.0 * (intersection.sum(1) + smooth) / (sums.sum(1) + smooth)
         return 1 - score.sum() / batchsize
