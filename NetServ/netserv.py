@@ -71,6 +71,11 @@ app = Flask(__name__)
 containers={ 'echo': EchoContainer() }
 
 
+@app.route('/')
+def directory():
+    return jsonify(['/list','/info/<name>','/inferimg/<name>'])
+
+
 @app.route('/list')
 def listContainers():
     '''Returns a list of the loaded container names.'''

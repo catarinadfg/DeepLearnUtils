@@ -1,15 +1,13 @@
 # DeepLearnUtils 
 # Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
 
-
 import io,json
+from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 
 import numpy as np
 
 from imageio import imwrite, imread
-
-from urllib.request import Request, urlopen
-from urllib.parse import urlencode
 
 
 class InferenceClient(object):

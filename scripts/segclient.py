@@ -4,59 +4,25 @@
 '''
 This is an Eidolon script used to send the selected image object to a running instance of the SegServ server and then
 load the returned segmentation image. This assumes the segmentation model accepts single channel images and returns
-a binary segmentation, for anything more complex the requestSeg() function should be changed.
+an integer segmentation. The `host`, `port`, and `container` values can be set using --var on the command line.
+
+The NetServ module must be accessible for this script to work. An example usage of the script:
+    
+    PYTHONPATH=~/workspace/DeepLearnUtils/NetServ/ run.sh input.nii segclient.py --var container,SAX3Label
 '''
 from __future__ import division, print_function
 from eidolon import ImageSceneObject,processImageNp, trange, first, rescaleArray, getSceneMgr
 
+import numpy as np
+
 from netclient import InferenceClient
 
-
+# local variables set using --var command line options
 localhost=locals().get('host','0.0.0.0')
 localport=locals().get('port','5000')
 localcont=locals().get('container','echo')
 
 client=InferenceClient(localhost,int(localport))
-
-#import io
-#
-#try:
-#    from urllib2 import Request,urlopen
-#except:
-#    from urllib.request import Request, urlopen
-#
-#try:
-#    from imageio import imwrite, imread
-#except:
-#    from scipy.misc import imsave as imwrite,imread
-#
-#
-## the server url, defaulting to my desktop if "--var url,<URL-to-server>" is not present on the command line
-#localurl=locals().get('url','http://bioeng187-pc:5000/infer/lax')
-#
-#
-#def requestSeg(inmat,outmat,url):
-#    task=getSceneMgr().getCurrentTask()
-#    task.setMaxProgress(inmat.shape[2]*inmat.shape[3])
-#    task.setLabel('Segmenting...')
-#    count=0
-#    
-#    for s,t in trange(inmat.shape[2],inmat.shape[3]):
-#        count+=1
-#        task.setProgress(count)
-#            
-#        img=rescaleArray(inmat[:,:,s,t])
-#        
-#        if img.max()>img.min(): # non-empty image
-#            stream=io.BytesIO()
-#            imwrite(stream,img,format='png') # encode image as png
-#            stream.seek(0)
-#
-#            request = Request(url+'?keepLargest=True',stream.read(),{'Content-Type':'image/png'})
-#            req=urlopen(request)
-#            
-#            if req.code==200: 
-#                outmat[:,:,s,t]=imread(io.BytesIO(req.read()))>0
     
 
 if __name__=='builtins':
@@ -70,8 +36,8 @@ if __name__=='builtins':
         oo=o.plugin.clone(o,o.getName()+'_Seg')
         
         with processImageNp(oo,True) as m:
-#            requestSeg(m,m,localurl)
-            m[...]=client.inferImageVolume(localcont,m)
+            data=rescaleArray(m,0,np.iinfo(np.uint16).max).astype(np.uint16)
+            m[...]=client.inferImageVolume(localcont,data)
                         
         mgr.addSceneObject(oo)
     

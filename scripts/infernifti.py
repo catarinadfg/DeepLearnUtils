@@ -1,3 +1,9 @@
+'''
+Simple script for applying inference to a Nifti file. This will produce a Nifti as output in the returned format from 
+the server. The nibabel and NetServ libraries must be accessible. Example usage
+
+    PYTHONPATH=~/workspace/nibabel:~/workspace/DeepLearnUtils/NetServ/ python infernifti.py in.nii out.nii SAX3Label
+'''
 from __future__ import division, print_function
 import argparse
 import nibabel as nib
@@ -29,7 +35,6 @@ if __name__=='__main__':
         data=(data*np.iinfo(np.uint16).max).astype(np.uint16)
         
     out=c.inferImageVolume(args.container,data)
-    
     
     outfile=nib.Nifti1Image(out, infile.affine, infile.header)
     nib.save(outfile,args.outfile)
