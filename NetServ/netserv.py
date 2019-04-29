@@ -38,7 +38,7 @@ or using forms as such:
 
 '''
 from __future__ import division, print_function
-import io, argparse, ast, logging, requests, urllib, importlib.util
+import io, argparse, ast, logging, importlib.util
 
 from flask import Flask, request, send_file, jsonify
 
@@ -46,36 +46,6 @@ import numpy as np
 
 from imageio import imwrite, imread
 
-
-class InferenceClient(object):
-    def __init__(self,host,port):
-        self.host=str(host)
-        self.port=int(port)
-        self.url='http://%s:%i'%(self.host,self.port)
-        
-        req=requests.get(self.url+'/list')
-        req.raise_for_status()
-            
-        self.names=req.json()
-        
-    def getInfo(self,name):
-        req=requests.get('%s/info/%s'%(self.url,name))
-        req.raise_for_status()
-        
-        return req.json()
-    
-    def getInferImage(self,name,img,**kwargs):
-        stream=io.BytesIO()
-        imwrite(stream,img,format='png') # encode image as png
-        stream.seek(0)
-
-        fullurl='%s/inferimg/%s?%s'%(self.url,name,urllib.parse.urlencode(kwargs))
-        
-        req=requests.post(fullurl,headers={'Content-Type':'image/png'},data=stream.read()) # post image data
-        req.raise_for_status()
-         
-        return imread(io.BytesIO(req.content)) # return image read from response byte stream
-        
 
 class InferenceContainer(object):
     def __init__(self,name,description,inputMap,outputMap,argMap):
@@ -103,11 +73,13 @@ containers={ 'echo': EchoContainer() }
 
 @app.route('/list')
 def listContainers():
+    '''Returns a list of the loaded container names.'''
     return jsonify(list(containers.keys()))
     
 
 @app.route('/info/<name>')
 def info(name):
+    '''Returns the information map for the named container.'''
     obj=containers[name]
     
     infoMap={
@@ -126,7 +98,7 @@ def inferimg(name):
     obj=containers[name]
     args={k:ast.literal_eval(v) for k,v in request.args.items()} # keep only one value per argument name
         
-    data=request.data or request.files['data'].read() # read posted data or a form file called 'data'
+    data=request.data or request.files['in'].read() # read posted data or a form file called 'data'
     imgmat=imread(io.BytesIO(data)) # read posted image file to matrix
     logging.info('infer(): %r %r %r %r %r %r'%(name,imgmat.shape,imgmat.dtype,imgmat.min(),imgmat.max(),args))
 
