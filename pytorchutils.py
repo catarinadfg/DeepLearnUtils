@@ -175,7 +175,7 @@ class NetworkManager(object):
         
     def loadNet(self,path):
         '''Load the network and its state from the given path, value "__net__" in the state dict should be network itself.'''
-        state=torch.load(path)
+        state=torch.load(path,map_location='cpu')
         self.net=state.pop('__net__')
         self.net.load_state_dict(state)
         self.net=self.net.to(self.device) # ensure the hardware state of the loaded network matches what's requested
