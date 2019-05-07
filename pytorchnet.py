@@ -556,6 +556,43 @@ class VarAutoEncoder(AutoEncoder):
         z = self.reparameterize(mu, logvar)
         return self.decodeForward(z), mu, logvar, z
         
+    
+class CycleEncoder(nn.Module):
+    def __init__(self,inChannels,outChannels,channels,strides,kernelSize=3,upKernelSize=3,numResUnits=0,
+                 interChannels=[], interDilations=[], numInterUnits=2,instanceNorm=True, dropout=0,noiseStd=1e-5):
+        super(CycleEncoder,self).__init__()
+        self.noiseStd=noiseStd
+        
+        self.a2bEncode=AutoEncoder(inChannels,outChannels,channels,strides,kernelSize,upKernelSize,
+                 numResUnits,interChannels, interDilations, numInterUnits,instanceNorm, dropout) 
+        self.b2aEncode=AutoEncoder(inChannels,outChannels,channels,strides,kernelSize,upKernelSize,
+                 numResUnits,interChannels, interDilations, numInterUnits,instanceNorm, dropout)
+        
+    def a2bForward(self,x):
+        return self.a2bEncode(x)[0]
+    
+    def b2aForward(self,x):
+        return self.b2aEncode(x)[0]
+    
+    def forward(self,imA,imB):
+        # images produced by networks directly
+        outB=self.a2bForward(imA)
+        outA=self.b2aForward(imB)
+        
+        reconInA=outA
+        reconInB=outB
+        
+        # add noise between autoencoders to prevent stenography effect (hiding source image in high frequency space of output)
+        if self.training and self.noiseStd>0:
+            reconInA=pytorchnet.addNormalNoise(reconInA,0,self.noiseStd)
+            reconInB=pytorchnet.addNormalNoise(reconInB,0,self.noiseStd)
+        
+        # images reconstructed from passing network outputs through each other
+        reconA=self.b2aForward(reconInB)
+        reconB=self.a2bForward(reconInA)
+        
+        return outA,outB,reconA,reconB
+    
    
 class SegnetAE(AutoEncoder):
     def __init__(self,inChannels,numClasses,channels,strides,kernelSize=3,upKernelSize=3,

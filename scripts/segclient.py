@@ -10,7 +10,9 @@ The NetServ module must be accessible for this script to work. An example usage 
     
     PYTHONPATH=~/workspace/DeepLearnUtils/NetServ/ run.sh input.nii segclient.py --var container,SAX3Label
 '''
-from __future__ import division, print_function
+import sys,os
+sys.path.append(os.path.join(scriptdir,'..','NetServ'))
+
 from eidolon import ImageSceneObject,processImageNp, trange, first, rescaleArray, getSceneMgr
 
 import numpy as np

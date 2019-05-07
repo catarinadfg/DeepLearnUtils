@@ -4,7 +4,10 @@ the server. The nibabel and NetServ libraries must be accessible. Example usage
 
     PYTHONPATH=~/workspace/nibabel:~/workspace/DeepLearnUtils/NetServ/ python infernifti.py in.nii out.nii SAX3Label
 '''
-from __future__ import division, print_function
+
+import sys,os
+sys.path.append(os.path.join(os.path.dirname(__file__),'..','NetServ'))
+
 import argparse
 import nibabel as nib
 import numpy as np
