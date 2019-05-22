@@ -584,8 +584,8 @@ class CycleEncoder(nn.Module):
         
         # add noise between autoencoders to prevent stenography effect (hiding source image in high frequency space of output)
         if self.training and self.noiseStd>0:
-            reconInA=pytorchnet.addNormalNoise(reconInA,0,self.noiseStd)
-            reconInB=pytorchnet.addNormalNoise(reconInB,0,self.noiseStd)
+            reconInA=addNormalNoise(reconInA,0,self.noiseStd)
+            reconInB=addNormalNoise(reconInB,0,self.noiseStd)
         
         # images reconstructed from passing network outputs through each other
         reconA=self.b2aForward(reconInB)

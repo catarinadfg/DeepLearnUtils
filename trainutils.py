@@ -349,7 +349,25 @@ def resizeCenter(img,*resizeDims,fillValue=0):
     return dest
 
 
+def equalizeImageHistogram(image, number_bins=512):
+    # get image histogram
+    image_histogram, bins = np.histogram(image.flatten(), number_bins, density=True)
+    cdf = image_histogram.cumsum() # cumulative distribution function
+    cdf = image.max() * cdf / cdf[-1] # normalize
+
+    # use linear interpolation of cdf to find new pixel values
+    equalized = np.interp(image.flatten(), bins[:-1], cdf)
+
+    return equalized.reshape(image.shape), cdf
+
+
 def iterPatch(arr,patchSize,margins=(),startPos=(),copyBack=True,padMode='wrap'):
+    '''
+    Yield successive patches from `arr' of size `patchSize'. The array can be padded with per-dimension widths in
+    `margins', and the iteration can start from position `startPos' in `arr' but drawing from the padded array (so these 
+    coordinates can be negative to start in the padded region). If `copyBack' is True the values from each patch are 
+    written back to `arr'.
+    '''
     # ensure patchSize, margins, startPos are the right length
     patchSize=(tuple(patchSize)+(0,)*arr.ndim)[:arr.ndim]
     margins=(tuple(margins)+(0,)*arr.ndim)[:arr.ndim]
@@ -547,7 +565,7 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     graph.set_yscale(yscale)
     graph.axis('on')
     graph.legend(bbox_to_anchor=(1, 1), loc=1, borderaxespad=0.)
-    graph.grid(True,'both')
+    graph.grid(True,'both','both')
     graph.xaxis.set_major_locator(MaxNLocator(integer=True))
     
     ims=[graph]

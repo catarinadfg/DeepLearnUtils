@@ -229,7 +229,8 @@ class BufferDataSource(DataSource):
                 self.arrays[i]=np.concatenate([self.arrays[i],arrays[i]])
                 
         if self.selectProbs is not None:
-            self.selectProbs=np.ones((self.arrays[0].shape[0],))
+            size=self.arrays[0].shape[0]
+            self.selectProbs=np.ones((size,))/size
             
     def clearBuffer(self):
         if self.bufferSize()>0:
