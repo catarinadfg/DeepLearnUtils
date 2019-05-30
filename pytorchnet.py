@@ -116,7 +116,7 @@ class DiceLoss(_Loss):
                 tsum = tsum[:, 1:]
                 psum = psum[:, 1:]
                 source = source[:, 1:]
-
+                
         batchsize = target.size(0)
         tsum = tsum.float().view(batchsize, -1)
         psum = psum.view(batchsize, -1)

@@ -30,8 +30,8 @@ def loadURLMod(url,name=None):
     name=name or os.path.splitext(os.path.basename(url))[0]
     code=urllib.request.urlopen(url).read().decode()
     mod=types.ModuleType(name)
-    sys.modules[name]=mod
     exec(code,mod.__dict__)
+    sys.modules[name]=mod
     return mod
 
 
@@ -57,6 +57,12 @@ def isEmpty(img):
     return not (img.max()>img.min()) # use > instead of <= so that an image full of NaNs will result in True
 
 
+def ensureTupleSize(tup,dim):
+    '''Returns a copy of `tup' with `dim' values by either shortened or padded with zeros as necessary.'''
+    tup=tuple(tup)+(0,)*dim
+    return tup[:dim]
+
+
 def zeroMargins(img,margin):
     '''Returns True if the values within `margin' indices of the edges of `img' are 0.'''
     if np.any(img[:,:margin]) or np.any(img[:,-margin:]):
@@ -72,7 +78,7 @@ def applyArgMap(func,*posargs,**kwargs):
     '''
     Call `func' with positional arguments `posargs' and subsequent arguments replaced by named entries in `kwargs'. This
     will pull out of `kwargs' only those values keyed to the same name as an argument in `func', additional keys in 
-    `argmap' are ignored if `func' does not have a ** parameter. If `func' has variable positional arguments this can 
+    `kwargs' are ignored if `func' does not have a ** parameter. If `func' has variable positional arguments this can 
     only be set by `posargs'.
     '''
     argspec=inspect.getfullargspec(func)
@@ -357,11 +363,33 @@ def equalizeImageHistogram(image, number_bins=512):
 
     # use linear interpolation of cdf to find new pixel values
     equalized = np.interp(image.flatten(), bins[:-1], cdf)
+    equalized=equalized.astype(image.dtype).reshape(image.shape)
 
-    return equalized.reshape(image.shape), cdf
+    return equalized, cdf
 
 
-def iterPatch(arr,patchSize,margins=(),startPos=(),copyBack=True,padMode='wrap'):
+def iterPatchSlices(dims,patchSize,startPos=()):
+    '''
+    Yield successive tuples of slices defining patches of size `patchSize' from an array of dimensions `dims'. The 
+    iteration starts from position `startPos' in the array, or starting at the origin if this isn't provided.
+    '''
+    # ensure patchSize, margins, startPos are the right length
+    ndim=len(dims)
+    patchSize=ensureTupleSize(patchSize,ndim)
+    startPos=ensureTupleSize(startPos,ndim)
+    
+    # substitute sizes if None was specified in the patchSize (meaning full dimensions)
+    patchSize=tuple(p or dims[i] for i,p in enumerate(patchSize))
+    
+    # collect the ranges to step over each dimension
+    ranges=tuple(range(s,d,p) for p,s,d in zip(patchSize,startPos,dims))
+    
+    # choose patches by applying product to the ranges
+    for position in product(*ranges[::-1]): # reverse ranges order to iterate in index order
+        yield tuple(slice(s,s+p) for s,p in zip(position[::-1],patchSize))
+        
+
+def iterPatch(arr,patchSize,margins=(),startPos=(),copyBack=True,padMode='wrap',**padOpts):
     '''
     Yield successive patches from `arr' of size `patchSize'. The array can be padded with per-dimension widths in
     `margins', and the iteration can start from position `startPos' in `arr' but drawing from the padded array (so these 
@@ -369,25 +397,24 @@ def iterPatch(arr,patchSize,margins=(),startPos=(),copyBack=True,padMode='wrap')
     written back to `arr'.
     '''
     # ensure patchSize, margins, startPos are the right length
-    patchSize=(tuple(patchSize)+(0,)*arr.ndim)[:arr.ndim]
-    margins=(tuple(margins)+(0,)*arr.ndim)[:arr.ndim]
-    startPos=(tuple(startPos)+(0,)*arr.ndim)[:arr.ndim]
+    patchSize=ensureTupleSize(patchSize,arr.ndim)
+    margins=ensureTupleSize(margins,arr.ndim)
+    startPos=ensureTupleSize(startPos,arr.ndim)
     
     # substitute sizes if None was specified in the patchSize (meaning full dimensions)
     patchSize=tuple(p or arr.shape[i] for i,p in enumerate(patchSize))
     
     # pad image by maximum values needed to ensure patches are taken from inside an image
-    padWidth=tuple((p+m,)*2 for p,m in zip(patchSize,margins))
-    arrpad=np.pad(arr,padWidth,padMode)
+    padWidth=tuple(p+m for p,m in zip(patchSize,margins))
+    startPosPadded=tuple(s+p for s,p in zip(startPos,padWidth))
+    arrpad=np.pad(arr,tuple((w//2,w//2) for w in padWidth),padMode,**padOpts)
     
-    ranges=tuple(range(s+m+p,d+p,p) for p,m,s,d in zip(patchSize,margins,startPos,arr.shape))
-    
-    for position in product(*ranges[::-1]): # reverse ranges order to iterate in index order
-        slices=tuple(slice(s-m,s+p+m) for s,p,m in zip(position[::-1],patchSize,margins))
+    for i,slices in enumerate(iterPatchSlices(arrpad.shape,patchSize,startPosPadded)):
+        print(' ',i,slices)
         yield arrpad[slices]
         
     if copyBack:
-        slices=tuple(slice(w[0],w[0]+s) for w,s in zip(padWidth,arr.shape))
+        slices=tuple(slice(w//2,w//2+s) for w,s in zip(padWidth,arr.shape))
         arr[...]=arrpad[slices]
         
 
@@ -709,5 +736,20 @@ if __name__=='__main__':
 #        print(p.shape)
 #        p[...]=i
         
-    print(zeroMargins(im,5))
+#    print(zeroMargins(im,5))
         
+    arr=np.zeros((32,32))
+    
+#    print(list(iterPatchSlices(arr.shape,arr.shape)))
+#    print()
+#    print(list(iterPatchSlices(arr.shape,(16,16))))
+#    print()
+#    print(list(iterPatchSlices(arr.shape,arr.shape,startPos=(10,10))))
+#    print()
+#    print(list(iterPatchSlices(arr.shape,(16,16),startPos=(10,10))))
+    
+    print([p.shape for p in iterPatch(arr,arr.shape)])
+    print()
+    print([p.shape for p in iterPatch(arr,(16,16))])
+    print()
+    print([p.shape for p in iterPatch(arr,(15,15))])

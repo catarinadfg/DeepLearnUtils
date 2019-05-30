@@ -259,7 +259,7 @@ class MergeDataSource(DataSource):
         def yieldData():
             with ExitStack() as stack:
                 gens=[stack.enter_context(s.threadBatchGen(self.batchSize,self.numThreads)) for s in self.srcs]
-                while True:
+                while self.gen is not None:
                     yield sum([g() for g in gens],())
                     
         if self.gen is None or self.batchSize!=batchSize:
