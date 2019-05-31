@@ -373,7 +373,7 @@ def iterPatchSlices(dims,patchSize,startPos=()):
     Yield successive tuples of slices defining patches of size `patchSize' from an array of dimensions `dims'. The 
     iteration starts from position `startPos' in the array, or starting at the origin if this isn't provided.
     '''
-    # ensure patchSize, margins, startPos are the right length
+    # ensure patchSize and startPos are the right length
     ndim=len(dims)
     patchSize=ensureTupleSize(patchSize,ndim)
     startPos=ensureTupleSize(startPos,ndim)
@@ -389,32 +389,35 @@ def iterPatchSlices(dims,patchSize,startPos=()):
         yield tuple(slice(s,s+p) for s,p in zip(position[::-1],patchSize))
         
 
-def iterPatch(arr,patchSize,margins=(),startPos=(),copyBack=True,padMode='wrap',**padOpts):
+def iterPatch(arr,patchSize,startPos=(),copyBack=True,padMode='wrap',**padOpts):
     '''
-    Yield successive patches from `arr' of size `patchSize'. The array can be padded with per-dimension widths in
-    `margins', and the iteration can start from position `startPos' in `arr' but drawing from the padded array (so these 
-    coordinates can be negative to start in the padded region). If `copyBack' is True the values from each patch are 
-    written back to `arr'.
+    Yield successive patches from `arr' of size `patchSize'. The iteration can start from position `startPos' in `arr' 
+    but drawing from a padded array extended by the `patchSize' in each dimension (so these coordinates can be negative 
+    to start in the padded region). If `copyBack' is True the values from each patch are written back to `arr'.
     '''
-    # ensure patchSize, margins, startPos are the right length
+    # ensure patchSize and startPos are the right length
     patchSize=ensureTupleSize(patchSize,arr.ndim)
-    margins=ensureTupleSize(margins,arr.ndim)
     startPos=ensureTupleSize(startPos,arr.ndim)
     
     # substitute sizes if None was specified in the patchSize (meaning full dimensions)
     patchSize=tuple(p or arr.shape[i] for i,p in enumerate(patchSize))
     
     # pad image by maximum values needed to ensure patches are taken from inside an image
-    padWidth=tuple(p+m for p,m in zip(patchSize,margins))
-    startPosPadded=tuple(s+p for s,p in zip(startPos,padWidth))
-    arrpad=np.pad(arr,tuple((w//2,w//2) for w in padWidth),padMode,**padOpts)
+    arrpad=np.pad(arr,tuple((p,p) for p in patchSize),padMode,**padOpts)
+
+    # choose a start position in the padded image
+    startPosPadded=tuple(s+p for s,p in zip(startPos,patchSize))
     
-    for i,slices in enumerate(iterPatchSlices(arrpad.shape,patchSize,startPosPadded)):
-        print(' ',i,slices)
+    # choose a size to iterate over which is smaller than the actual padded image to prevent producing 
+    # patches which are only in the padded regions
+    iterSize=tuple(s+p for s,p in zip(arr.shape,patchSize))
+    
+    for slices in iterPatchSlices(iterSize,patchSize,startPosPadded):
         yield arrpad[slices]
-        
+      
+    # copy back data from the padded image if required
     if copyBack:
-        slices=tuple(slice(w//2,w//2+s) for w,s in zip(padWidth,arr.shape))
+        slices=tuple(slice(p,p+s) for p,s in zip(patchSize,arr.shape))
         arr[...]=arrpad[slices]
         
 
@@ -741,14 +744,14 @@ if __name__=='__main__':
     arr=np.zeros((32,32))
     
 #    print(list(iterPatchSlices(arr.shape,arr.shape)))
-#    print()
-#    print(list(iterPatchSlices(arr.shape,(16,16))))
+    print()
+    print(list(iterPatchSlices(arr.shape,(15,15))))
 #    print()
 #    print(list(iterPatchSlices(arr.shape,arr.shape,startPos=(10,10))))
 #    print()
 #    print(list(iterPatchSlices(arr.shape,(16,16),startPos=(10,10))))
     
-    print([p.shape for p in iterPatch(arr,arr.shape)])
+#    print([p.shape for p in iterPatch(arr,arr.shape)])
     print()
     print([p.shape for p in iterPatch(arr,(16,16))])
     print()
