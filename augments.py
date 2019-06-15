@@ -43,6 +43,39 @@ Added keyword arguments:
         return _func
     
     return _inner
+
+
+def checkSegmentMargin(func):
+    '''
+    Decorate an augment callable `func` with a check to ensure a given segmentation image in the set does not
+    touch the margins of the image when geometric transformations are applied. The keyword arguments `margin`,
+    `maxCount` and `nonzeroIndex` are used to check the image at index `nonzeroIndex` has the given margin of
+    pixels around its edges, trying `maxCount` number of times to get a modifier by calling `func` before 
+    giving up and producing a identity modifier in its place. 
+    '''
+    @wraps(func)
+    def _check(*args,**kwargs):
+        margin=max(1,kwargs.pop('margin',5))
+        maxCount=max(1,kwargs.pop('maxCount',5))
+        nonzeroIndex=kwargs.pop('nonzeroIndex',-1)
+        acceptedOutput=False
+        
+        while maxCount>0 and not acceptedOutput:
+            op=func(*args,**kwargs)
+            maxCount-=1
+            
+            if nonzeroIndex==-1:
+                acceptedOutput=True
+            else:
+                seg=op(args[nonzeroIndex]).astype(np.int32)
+                acceptedOutput=trainutils.zeroMargins(seg,margin)
+                
+        if not acceptedOutput:
+            op=lambda arr:arr
+                
+        return op
+    
+    return _check
             
 
 @augment()
@@ -79,8 +112,8 @@ def randPatch(*arrs,patchSize=(32,32),maxCount=10, nonzeroIndex=-1):
     testim=arrs[nonzeroIndex]
     h,w=testim.shape[:2]
     ph,pw=patchSize
-    ry=0 # np.random.randint(0,h-ph)
-    rx=0 # np.random.randint(0,w-pw)
+    ry=0 
+    rx=0
     
     if nonzeroIndex!=-1:
         acceptedVals=False
@@ -95,21 +128,15 @@ def randPatch(*arrs,patchSize=(32,32),maxCount=10, nonzeroIndex=-1):
         if not acceptedVals:
             rx=0
             ry=0
-            
-#        for i in range(maxCount):
-#            if testim[ry:ry+ph,rx:rx+pw].max()>0:
-#                break
-#            
-#            ry=np.random.randint(0,h-ph)
-#            rx=np.random.randint(0,w-pw)
 
     return lambda im: im[ry:ry+ph,rx:rx+pw]
 
-
+        
 @augment()
-def shift(*arrs,margin=5,dimfract=2,order=3,maxCount=10, nonzeroIndex=-1):
+@checkSegmentMargin
+def shift(*arrs,dimfract=2,order=3):
     '''Shift arrays randomly by `dimfract' fractions of the array dimensions.'''
-    testim=arrs[nonzeroIndex]
+    testim=arrs[0]
     x,y=testim.shape[:2]
     shiftx=np.random.randint(-x//dimfract,x//dimfract)
     shifty=np.random.randint(-y//dimfract,y//dimfract)
@@ -123,55 +150,54 @@ def shift(*arrs,margin=5,dimfract=2,order=3,maxCount=10, nonzeroIndex=-1):
         
         return dest
     
-    if nonzeroIndex!=-1:
-        acceptedVals=False
-        count=maxCount
+#     if nonzeroIndex!=-1:
+#         acceptedVals=False
+#         count=maxCount
         
-        while count>=0 and not acceptedVals:
-            shiftx=np.random.randint(-x//dimfract,x//dimfract)
-            shifty=np.random.randint(-y//dimfract,y//dimfract)
-            seg=_shift(testim).astype(np.int32)
-            acceptedVals=trainutils.zeroMargins(seg,margin)
-            count-=1
-            
-        if not acceptedVals:
-            shiftx=0
-            shifty=0
-            
-#         for i in range(maxCount):
-#             seg=_shift(testim).astype(np.int32)
-#             if trainutils.zeroMargins(seg,margin):
-#                 break
-            
+#         while count>=0 and not acceptedVals:
 #             shiftx=np.random.randint(-x//dimfract,x//dimfract)
 #             shifty=np.random.randint(-y//dimfract,y//dimfract)
+#             seg=_shift(testim).astype(np.int32)
+#             acceptedVals=trainutils.zeroMargins(seg,margin)
+#             count-=1
+            
+#         if not acceptedVals:
+#             shiftx=0
+#             shifty=0
             
     return _shift
 
 
 @augment()
-def rotate(*arrs,margin=5,maxCount=10,nonzeroIndex=-1):
+@checkSegmentMargin
+def rotate(*arrs):#,margin=5,maxCount=10,nonzeroIndex=-1):
     '''Shift arrays randomly around the array center.'''
     
     angle=np.random.random()*360
     
-    _rotate=partial(scipy.ndimage.rotate,angle=angle,reshape=False)
+    def _rotate(im):
+        return scipy.ndimage.rotate(im,angle=angle,reshape=False)
     
-    if nonzeroIndex!=-1:
-        testim=arrs[nonzeroIndex]
+#     if nonzeroIndex!=-1:
+#         testim=arrs[nonzeroIndex]
+#         acceptedVals=False
+#         count=maxCount
         
-        for i in range(maxCount):
-            seg=_rotate(testim).astype(np.int32)
-            if trainutils.zeroMargins(seg,margin):
-                break
+#         while count>=0 and not acceptedVals:
+#             angle=np.random.random()*360
+#             seg=_rotate(testim).astype(np.int32)
+#             acceptedVals=trainutils.zeroMargins(seg,margin)
+#             count-=1
             
-            angle=np.random.random()*360
+#         if not acceptedVals:
+#             angle=0
         
     return _rotate
 
 
 @augment()
-def zoom(*arrs,margin=5,zoomrange=0.2,maxCount=10,nonzeroIndex=-1):
+@checkSegmentMargin
+def zoom(*arrs,zoomrange=0.2):#,margin=5,zoomrange=0.2,maxCount=10,nonzeroIndex=-1):
     '''Return the image/mask pair zoomed by a random amount with the mask kept within `margin' pixels of the edges.'''
     
     z=zoomrange-np.random.random()*zoomrange*2
@@ -182,23 +208,24 @@ def zoom(*arrs,margin=5,zoomrange=0.2,maxCount=10,nonzeroIndex=-1):
         ztemp=scipy.ndimage.zoom(im,(zx,zy)+tuple(1 for _ in range(2,im.ndim)),order=2)
         return trainutils.resizeCenter(ztemp,*im.shape)
     
-    if nonzeroIndex!=-1:
-        testim=arrs[nonzeroIndex]
+#     if nonzeroIndex!=-1:
+#         testim=arrs[nonzeroIndex]
         
-        for i in range(maxCount):
-            seg=_zoom(testim).astype(np.int32)
-            if trainutils.zeroMargins(seg,margin):
-                break
+#         for i in range(maxCount):
+#             seg=_zoom(testim).astype(np.int32)
+#             if trainutils.zeroMargins(seg,margin):
+#                 break
             
-            z=zoomrange-np.random.random()*zoomrange*2
-            zx=z+1.0+zoomrange*0.25-np.random.random()*zoomrange*0.5
-            zy=z+1.0+zoomrange*0.25-np.random.random()*zoomrange*0.5
+#             z=zoomrange-np.random.random()*zoomrange*2
+#             zx=z+1.0+zoomrange*0.25-np.random.random()*zoomrange*0.5
+#             zy=z+1.0+zoomrange*0.25-np.random.random()*zoomrange*0.5
             
     return _zoom
 
 
 @augment()
-def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0,maxCount=10, nonzeroIndex=-1):
+@checkSegmentMargin
+def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0):#,maxCount=10, nonzeroIndex=-1):
     from PIL import Image
     
     testim=arrs[0]
@@ -229,15 +256,15 @@ def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0,maxCount=10, nonzeroIndex
         else:
             return np.dstack([_trans(im[...,i]) for i in range(im.shape[-1])])
     
-    if nonzeroIndex!=-1:
-        for i in range(maxCount):
-            seg=_trans(testim).astype(np.int32)
-            if trainutils.zeroMargins(seg,margin):
-                break
+#     if nonzeroIndex!=-1:
+#         for i in range(maxCount):
+#             seg=_trans(testim).astype(np.int32)
+#             if trainutils.zeroMargins(seg,margin):
+#                 break
             
-            angle=np.random.random()*360
-            zoomx=x+np.random.randint(-x//dimfract,x//dimfract)
-            zoomy=y+np.random.randint(-y//dimfract,y//dimfract)
+#             angle=np.random.random()*360
+#             zoomx=x+np.random.randint(-x//dimfract,x//dimfract)
+#             zoomy=y+np.random.randint(-y//dimfract,y//dimfract)
             
     return _trans
 
