@@ -3,12 +3,12 @@
 
 
 from __future__ import division, print_function
-import subprocess, re, time, platform, threading, random
+import subprocess, re, time, platform, threading, random, contextlib
 from collections import OrderedDict
 from itertools import product
 import inspect
 import numpy as np
-import scipy
+import scipy.ndimage, scipy.spatial
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import matplotlib.animation as animation
@@ -222,6 +222,20 @@ def createTestImage(width,height,numObjs=12,radMax=30,noiseMax=0.0,numSegClasses
     
     return noisyimage,labels
 
+
+@contextlib.contextmanager
+def processNifti(infile,outfile=None):
+    '''Yields the header and data array from nifti `infile`, then writes back the array to `outfile` if not None.'''
+    import nibabel as nib
+    im=nib.load(infile)
+    dat=im.get_data()
+    
+    yield im.header,dat
+    
+    if outfile:
+        outim = nib.Nifti1Image(dat, im.affine, im.header)
+        nib.save(outim,outfile)
+        
 
 def rescaleArray(arr,minv=0.0,maxv=1.0,dtype=np.float32):
     '''Rescale the values of numpy array `arr' to be from `minv' to `maxv'.'''
@@ -447,20 +461,36 @@ def stackImages(images,cropy,cropx,dtype=np.float32):
     return output
 
 
-def tileStack(stack,cols,rows):
+def tileStack(stack,cols,rows=1):
     '''
     Returns a new array with subarrays taken from `stack' in the first dimension tiled in the last two dimensions. This
     requires that `stack' have dimensions B[C][D]HW, ie. the first dimension is per-image and the last are height/width.
     '''
-    b=stack.shape[0]
+    b=len(stack)
     stack=stack[:b-b%cols]
-    rows=min(rows,stack.shape[0]//cols)
+    rows=min(rows,len(stack)//cols)
     out=[]
     
     for r in range(rows):
         out.append([stack[r*cols+c] for c in range(cols)])
         
     return np.block(out)
+
+
+def showImages(*images,**kwargs):
+    axis=kwargs.get('axis','off')
+    figSize=kwargs.get('figSize',(10,4))
+    titles=list(kwargs.get('titles',[]))
+    titles+=['Image %i'%i for i in range(len(titles),len(images))]
+    
+    fig, axes = plt.subplots(1, len(images), sharex=True, sharey=True, figsize=figSize)
+    
+    for ax,im,title in zip(axes,images,titles):
+        ax.imshow(im)
+        ax.axis(axis)
+        ax.set_title('%s\n%.3g -> %.3g'%(title,im.min(),im.max()))
+        
+    return fig,axes
 
 
 def comparePrediction(imgs,masks,logits,preds,title=''):
@@ -507,7 +537,7 @@ def comparePrediction(imgs,masks,logits,preds,title=''):
     return figax
 
         
-def viewImages(img,mask,maskval=0.25):
+def viewImagesPyQtGraph(img,mask,maskval=0.25):
     import pyqtgraph as pg
     
     if mask is not None:
