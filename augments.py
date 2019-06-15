@@ -124,13 +124,27 @@ def shift(*arrs,margin=5,dimfract=2,order=3,maxCount=10, nonzeroIndex=-1):
         return dest
     
     if nonzeroIndex!=-1:
-        for i in range(maxCount):
-            seg=_shift(testim).astype(np.int32)
-            if trainutils.zeroMargins(seg,margin):
-                break
-            
+        acceptedVals=False
+        count=maxCount
+        
+        while count>=0 and not acceptedVals:
             shiftx=np.random.randint(-x//dimfract,x//dimfract)
             shifty=np.random.randint(-y//dimfract,y//dimfract)
+            seg=_shift(testim).astype(np.int32)
+            acceptedVals=trainutils.zeroMargins(seg,margin)
+            count-=1
+            
+        if not acceptedVals:
+            shiftx=0
+            shifty=0
+            
+#         for i in range(maxCount):
+#             seg=_shift(testim).astype(np.int32)
+#             if trainutils.zeroMargins(seg,margin):
+#                 break
+            
+#             shiftx=np.random.randint(-x//dimfract,x//dimfract)
+#             shifty=np.random.randint(-y//dimfract,y//dimfract)
             
     return _shift
 
