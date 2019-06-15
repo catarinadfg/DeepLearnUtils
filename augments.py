@@ -70,7 +70,7 @@ def normalize(*arrs):
 
 
 @augment(prob=1.0)
-def randPatch(*arrs,patchSize=(32,32),maxcount=10, nonzeroIndex=-1):
+def randPatch(*arrs,patchSize=(32,32),maxCount=10, nonzeroIndex=-1):
     '''
     Randomly choose a patch from `arrs' of dimensions `patchSize'. if `nonzeroIndex' is not -1, the patch will be chosen 
     so that the image at index `nonzeroIndex' has positive non-zero pixels in it, this can be used to ensure the chosen 
@@ -79,22 +79,35 @@ def randPatch(*arrs,patchSize=(32,32),maxcount=10, nonzeroIndex=-1):
     testim=arrs[nonzeroIndex]
     h,w=testim.shape[:2]
     ph,pw=patchSize
-    ry=np.random.randint(0,h-ph)
-    rx=np.random.randint(0,w-pw)
+    ry=0 # np.random.randint(0,h-ph)
+    rx=0 # np.random.randint(0,w-pw)
     
     if nonzeroIndex!=-1:
-        for i in range(maxcount):
-            if testim[ry:ry+ph,rx:rx+pw].max()>0:
-                break
-            
+        acceptedVals=False
+        count=maxCount
+        
+        while count>=0 and not acceptedVals:
             ry=np.random.randint(0,h-ph)
             rx=np.random.randint(0,w-pw)
+            acceptedVals=testim[ry:ry+ph,rx:rx+pw].max()>0
+            count-=1
+            
+        if not acceptedVals:
+            rx=0
+            ry=0
+            
+#        for i in range(maxCount):
+#            if testim[ry:ry+ph,rx:rx+pw].max()>0:
+#                break
+#            
+#            ry=np.random.randint(0,h-ph)
+#            rx=np.random.randint(0,w-pw)
 
     return lambda im: im[ry:ry+ph,rx:rx+pw]
 
 
 @augment()
-def shift(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1):
+def shift(*arrs,margin=5,dimfract=2,order=3,maxCount=10, nonzeroIndex=-1):
     '''Shift arrays randomly by `dimfract' fractions of the array dimensions.'''
     testim=arrs[nonzeroIndex]
     x,y=testim.shape[:2]
@@ -111,7 +124,7 @@ def shift(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1):
         return dest
     
     if nonzeroIndex!=-1:
-        for i in range(maxcount):
+        for i in range(maxCount):
             seg=_shift(testim).astype(np.int32)
             if trainutils.zeroMargins(seg,margin):
                 break
@@ -123,7 +136,7 @@ def shift(*arrs,margin=5,dimfract=2,order=3,maxcount=10, nonzeroIndex=-1):
 
 
 @augment()
-def rotate(*arrs,margin=5,maxcount=10,nonzeroIndex=-1):
+def rotate(*arrs,margin=5,maxCount=10,nonzeroIndex=-1):
     '''Shift arrays randomly around the array center.'''
     
     angle=np.random.random()*360
@@ -133,7 +146,7 @@ def rotate(*arrs,margin=5,maxcount=10,nonzeroIndex=-1):
     if nonzeroIndex!=-1:
         testim=arrs[nonzeroIndex]
         
-        for i in range(maxcount):
+        for i in range(maxCount):
             seg=_rotate(testim).astype(np.int32)
             if trainutils.zeroMargins(seg,margin):
                 break
@@ -144,7 +157,7 @@ def rotate(*arrs,margin=5,maxcount=10,nonzeroIndex=-1):
 
 
 @augment()
-def zoom(*arrs,margin=5,zoomrange=0.2,maxcount=10,nonzeroIndex=-1):
+def zoom(*arrs,margin=5,zoomrange=0.2,maxCount=10,nonzeroIndex=-1):
     '''Return the image/mask pair zoomed by a random amount with the mask kept within `margin' pixels of the edges.'''
     
     z=zoomrange-np.random.random()*zoomrange*2
@@ -158,7 +171,7 @@ def zoom(*arrs,margin=5,zoomrange=0.2,maxcount=10,nonzeroIndex=-1):
     if nonzeroIndex!=-1:
         testim=arrs[nonzeroIndex]
         
-        for i in range(maxcount):
+        for i in range(maxCount):
             seg=_zoom(testim).astype(np.int32)
             if trainutils.zeroMargins(seg,margin):
                 break
@@ -171,7 +184,7 @@ def zoom(*arrs,margin=5,zoomrange=0.2,maxcount=10,nonzeroIndex=-1):
 
 
 @augment()
-def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0,maxcount=10, nonzeroIndex=-1):
+def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0,maxCount=10, nonzeroIndex=-1):
     from PIL import Image
     
     testim=arrs[0]
@@ -203,7 +216,7 @@ def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0,maxcount=10, nonzeroIndex
             return np.dstack([_trans(im[...,i]) for i in range(im.shape[-1])])
     
     if nonzeroIndex!=-1:
-        for i in range(maxcount):
+        for i in range(maxCount):
             seg=_trans(testim).astype(np.int32)
             if trainutils.zeroMargins(seg,margin):
                 break
