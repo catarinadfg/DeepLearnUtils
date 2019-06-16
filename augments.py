@@ -149,21 +149,6 @@ def shift(*arrs,dimfract=2,order=3):
         dest[destslices]=im[srcslices]
         
         return dest
-    
-#     if nonzeroIndex!=-1:
-#         acceptedVals=False
-#         count=maxCount
-        
-#         while count>=0 and not acceptedVals:
-#             shiftx=np.random.randint(-x//dimfract,x//dimfract)
-#             shifty=np.random.randint(-y//dimfract,y//dimfract)
-#             seg=_shift(testim).astype(np.int32)
-#             acceptedVals=trainutils.zeroMargins(seg,margin)
-#             count-=1
-            
-#         if not acceptedVals:
-#             shiftx=0
-#             shifty=0
             
     return _shift
 
@@ -178,20 +163,6 @@ def rotate(*arrs):#,margin=5,maxCount=10,nonzeroIndex=-1):
     def _rotate(im):
         return scipy.ndimage.rotate(im,angle=angle,reshape=False)
     
-#     if nonzeroIndex!=-1:
-#         testim=arrs[nonzeroIndex]
-#         acceptedVals=False
-#         count=maxCount
-        
-#         while count>=0 and not acceptedVals:
-#             angle=np.random.random()*360
-#             seg=_rotate(testim).astype(np.int32)
-#             acceptedVals=trainutils.zeroMargins(seg,margin)
-#             count-=1
-            
-#         if not acceptedVals:
-#             angle=0
-        
     return _rotate
 
 
@@ -207,18 +178,6 @@ def zoom(*arrs,zoomrange=0.2):#,margin=5,zoomrange=0.2,maxCount=10,nonzeroIndex=
     def _zoom(im):
         ztemp=scipy.ndimage.zoom(im,(zx,zy)+tuple(1 for _ in range(2,im.ndim)),order=2)
         return trainutils.resizeCenter(ztemp,*im.shape)
-    
-#     if nonzeroIndex!=-1:
-#         testim=arrs[nonzeroIndex]
-        
-#         for i in range(maxCount):
-#             seg=_zoom(testim).astype(np.int32)
-#             if trainutils.zeroMargins(seg,margin):
-#                 break
-            
-#             z=zoomrange-np.random.random()*zoomrange*2
-#             zx=z+1.0+zoomrange*0.25-np.random.random()*zoomrange*0.5
-#             zy=z+1.0+zoomrange*0.25-np.random.random()*zoomrange*0.5
             
     return _zoom
 
@@ -255,16 +214,6 @@ def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0):#,maxCount=10, nonzeroIn
             return np.array(im)
         else:
             return np.dstack([_trans(im[...,i]) for i in range(im.shape[-1])])
-    
-#     if nonzeroIndex!=-1:
-#         for i in range(maxCount):
-#             seg=_trans(testim).astype(np.int32)
-#             if trainutils.zeroMargins(seg,margin):
-#                 break
-            
-#             angle=np.random.random()*360
-#             zoomx=x+np.random.randint(-x//dimfract,x//dimfract)
-#             zoomy=y+np.random.randint(-y//dimfract,y//dimfract)
             
     return _trans
 

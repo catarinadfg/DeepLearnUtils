@@ -483,10 +483,12 @@ def showImages(*images,**kwargs):
     titles=list(kwargs.get('titles',[]))
     titles+=['Image %i'%i for i in range(len(titles),len(images))]
     
-    fig, axes = plt.subplots(1, len(images), sharex=True, sharey=True, figsize=figSize)
-    
+    fig, axes = plt.subplots(1, len(images), figsize=figSize)
+    if len(images)==1:
+        axes=[axes]
+        
     for ax,im,title in zip(axes,images,titles):
-        ax.imshow(im)
+        ax.imshow(np.squeeze(im))
         ax.axis(axis)
         ax.set_title('%s\n%.3g -> %.3g'%(title,im.min(),im.max()))
         
