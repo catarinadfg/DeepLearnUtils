@@ -477,6 +477,16 @@ def tileStack(stack,cols,rows=1):
     return np.block(out)
 
 
+def compareSegsRGB(ground,pred,numClasses=1):
+    '''Return an image comparing the segmentation images `ground` and `pred` having `numClasses` of unique values.'''
+    if numClasses==1:
+        channels=[ground,ground*pred,pred]
+    else:
+        channels=[ground>0,(ground>0)*(ground==pred),pred>0]
+        
+    return np.stack(channels,axis=2).astype(np.float32)
+    
+
 def showImages(*images,**kwargs):
     axis=kwargs.get('axis','off')
     figSize=kwargs.get('figSize',(10,4))
