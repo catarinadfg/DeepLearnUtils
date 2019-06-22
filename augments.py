@@ -155,7 +155,7 @@ def shift(*arrs,dimfract=2,order=3):
 
 @augment()
 @checkSegmentMargin
-def rotate(*arrs):#,margin=5,maxCount=10,nonzeroIndex=-1):
+def rotate(*arrs):
     '''Shift arrays randomly around the array center.'''
     
     angle=np.random.random()*360
@@ -168,7 +168,7 @@ def rotate(*arrs):#,margin=5,maxCount=10,nonzeroIndex=-1):
 
 @augment()
 @checkSegmentMargin
-def zoom(*arrs,zoomrange=0.2):#,margin=5,zoomrange=0.2,maxCount=10,nonzeroIndex=-1):
+def zoom(*arrs,zoomrange=0.2):
     '''Return the image/mask pair zoomed by a random amount with the mask kept within `margin' pixels of the edges.'''
     
     z=zoomrange-np.random.random()*zoomrange*2
@@ -184,7 +184,7 @@ def zoom(*arrs,zoomrange=0.2):#,margin=5,zoomrange=0.2,maxCount=10,nonzeroIndex=
 
 @augment()
 @checkSegmentMargin
-def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0):#,maxCount=10, nonzeroIndex=-1):
+def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0):
     from PIL import Image
     
     testim=arrs[0]

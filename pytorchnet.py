@@ -324,6 +324,39 @@ class ResidualUnit2D(nn.Module):
         return cx+res # add the residual to the output
 
 
+class DenseBlock(torch.nn.Module):
+    def __init__(self,inChannels,channels,dilations=[],kernelSize=3, numResUnits=0,instanceNorm=True, dropout=0):
+        super().__init__()
+        self.inChannels=inChannels
+        self.outChannels=inChannels
+        self.kernelSize=kernelSize
+        self.numResUnits=numResUnits
+        self.instanceNorm=instanceNorm
+        self.dropout=dropout
+        
+        self.outChannels=inChannels
+        if not dilations:
+            dilations=[1]*len(channels)
+        
+        for i,(c,d) in enumerate(zip(channels,dilations)):
+            self.add_module('dblayer%i'%i,self._getLayer(self.outChannels,c,d))
+            self.outChannels+=c
+        
+    def _getLayer(self,inChannels,outChannels,dilation):
+        if self.numResUnits>0:
+            return ResidualUnit2D(inChannels,outChannels,1,self.kernelSize,self.numResUnits, self.instanceNorm,self.dropout,dilation)
+        else:
+            return Convolution2D(inChannels,outChannels,1,self.kernelSize,self.instanceNorm,self.dropout,dilation)
+        
+    def forward(self,x):
+        cats=x
+        for layer in self.children():
+            x=layer(cats)
+            cats=torch.cat([cats,x],1)
+            
+        return cats
+    
+    
 class Classifier(nn.Module):
     def __init__(self,inShape,classes,channels,strides,kernelSize=3,numResUnits=2,instanceNorm=True,dropout=0,bias=True):
         super(Classifier,self).__init__()
@@ -463,8 +496,12 @@ class AutoEncoder(nn.Module):
             
             for i,(dc,di) in enumerate(zip(self.interChannels,self.interDilations)):
                 
-                unit=ResidualUnit2D(layerChannels,dc,1,self.kernelSize,
+                if self.numInterUnits>0:
+                    unit=ResidualUnit2D(layerChannels,dc,1,self.kernelSize,
                                 self.numInterUnits,self.instanceNorm,self.dropout,di)
+                else:
+                    unit=Convolution2D(layerChannels,dc,1,self.kernelSize,self.instanceNorm,self.dropout,di)
+                    
                 intermediate.add_module('inter_%i'%i,unit)
                 layerChannels=dc
 
