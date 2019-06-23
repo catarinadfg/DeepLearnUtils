@@ -275,6 +275,17 @@ def getLargestMaskObject(mask):
     
     return mask*(labeled==maxfeature)
     
+    
+def getLargestSegments(segments,numClasses=1):
+    if numClasses==1:
+        return getLargestMaskObject(segments)
+    else:
+        seg1hot=oneHot(segments,numClasses)
+        for i in range(1,numClasses):
+            seg1hot[...,i]=getLargestMaskObject(seg1hot[...,i])
+            
+        return np.argmax(seg1hot[...,1:],seg1hot.ndim-2)
+        
 
 def generateMaskConvexHull(mask):
     '''Returns a convex hull mask image covering the non-zero values in 2D/3D image `mask'.'''
@@ -291,7 +302,7 @@ def generateMaskConvexHull(mask):
     
     # reshape the points to the original's shape and mask by valid values
     return (simplexpts.reshape(origshape)!=-1).astype(mask.dtype) 
-
+    
     
 def cropCenter(img,*cropDims):
     '''
@@ -484,7 +495,7 @@ def compareSegsRGB(ground,pred,numClasses=1):
     else:
         channels=[ground>0,(ground>0)*(ground==pred),pred>0]
         
-    return np.stack(channels,axis=2).astype(np.float32)
+    return np.stack(channels,axis=ground.ndim).astype(np.float32)
     
 
 def showImages(*images,**kwargs):
