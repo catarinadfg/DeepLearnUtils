@@ -74,8 +74,6 @@ class DataSource(object):
     def getAugmentedArrays(self,arrays):
         '''Apply the augmentations to single-instance arrays.'''
         for aug in self.augments:
-            if not isinstance(arrays,(tuple,list)):
-                arrays=(arrays,)
             arrays=aug(*arrays)
             
         return arrays
