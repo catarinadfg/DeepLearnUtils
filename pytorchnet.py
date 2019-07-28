@@ -83,6 +83,43 @@ def predictSegmentation(logits):
         return logits.max(1)[1] # take the index of the max value along dimension 1
         
 
+def gaussianConv(numChannels,dimensions,kernelSize,stride=2,sigma=0.75):
+    '''
+    Returns a convolution layer object (nn.Conv1d,nn.Conv2d, or nn.Conv3d depending on `dimensions') implementing a
+    non-learnable gaussian filter.
+    '''
+    if dimensions==1:
+        convType=nn.Conv1d
+    elif dimensions==2:
+        convType=nn.Conv2d
+    else:
+        convType=nn.Conv3d
+        
+    kernelSize=np.atleast_1d(kernelSize)
+    
+    if kernelSize.shape[0]!=dimensions:
+        kernelSize=kernelSize[(0,)*dimensions,...]
+        
+    padding=((kernelSize-1)//2).tolist()
+    kernelSize=kernelSize.tolist()
+    
+    @np.vectorize
+    def gauss(*coords):
+        distSq=[(c-k//2)**2 for c,k in zip(coords,kernelSize)]
+        d=np.sqrt(np.sum(distSq)) # the distance from coords to the kernel center
+        return np.exp(-(d/(2*sigma))**2)
+    
+    filt=np.fromfunction(gauss,kernelSize)
+    filt=filt.astype(np.float32)/filt.sum()
+    filt=filt[None,None][(0,)*numChannels,...] # expand dimensions: (k0,k1,k2) -> (c,1,k0,k1,k2)
+    
+    conv=convType(numChannels,numChannels,kernelSize,stride,padding,1,numChannels,False)
+    conv.weight.data=torch.tensor(filt)
+    conv.weight.data.requires_grad=False
+    
+    return conv
+
+
 class DiceLoss(_Loss):
     '''
     Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
