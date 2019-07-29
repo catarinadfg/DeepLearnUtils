@@ -297,6 +297,20 @@ class DenseVAE(torch.nn.Module):
         return self.decodeForward(z), mu, logvar, z
     
         
+class UpsampleShuffle2D(nn.Sequential):
+    def __init__(self,inChannels,outChannels,upscaleFactor,kernelSize=1):
+        self.inChannels=inChannels
+        self.outChannels=outChannels
+        self.upscaleFactor=upscaleFactor
+        
+        shuffleChannels=outChannels*upscaleFactor*upscaleFactor
+        
+        if shuffleChannels!=self.inChannels:
+            self.add_module('setChan',nn.Conv2d(inChannels,shuffleChannels,kernelSize))
+            
+        self.add_module('shuffle',nn.PixelShuffle(upscaleFactor))
+        
+    
 class Convolution2D(nn.Sequential):
     def __init__(self,inChannels,outChannels,strides=1,kernelSize=3,instanceNorm=True,
                  dropout=0,dilation=1,bias=True,convOnly=False,isTransposed=False):
