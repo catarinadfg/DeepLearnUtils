@@ -186,16 +186,18 @@ class ThreadAugmentStream(AugmentStream):
         
     def __iter__(self):
         srcVals=[]
+        arraySizeTypes=None
         
         with ThreadPool(self.numThreads) as tp:
             for srcVal in self.src:
                 srcVals.append(srcVal)
 
-                if self.batchArrays is None:
+                if arraySizeTypes is None:
                     testAug=self._applyAugments(srcVals[0])
-                    self.batchArrays=tuple(np.zeros((self.batchSize,)+a.shape,a.dtype) for a in testAug)
+                    arraySizeTypes=tuple(((self.batchSize,)+a.shape,a.dtype) for a in testAug)
                     
                 if len(srcVals)==self.batchSize:
+                    self.batchArray=tuple(np.zeros(*st) for st in self.arraySizeTypes) # create fresh arrays each time
                     tp.starmap(self._applyAugmentThread,list(enumerate(srcVals)))
                     yield self.batchArrays
                     srcVals=[]
