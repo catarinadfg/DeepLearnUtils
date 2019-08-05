@@ -70,17 +70,17 @@ class ArraySource(DataStream):
     CHOICE='choice'
     NONE='none'
     
-    def __init__(self,*arrays,orderType=NONE,doOnce=False,choiceProbs=None):
+    def __init__(self,*arrays,shuffleType=NONE,doOnce=False,choiceProbs=None):
         self.arrays=tuple(map(np.atleast_1d,arrays))
         self.arrayLen=self.arrays[0].shape[0]
         
         assert all(arr.shape[0]==self.arrayLen for arr in self.arrays), \
             'All input arrays must have the same length for dimension 0.'
             
-        assert orderType in (self.SHUFFLE,self.CHOICE,self.NONE)
+        assert shuffleType in (self.SHUFFLE,self.CHOICE,self.NONE)
         
         self.indices=np.arange(self.arrayLen)
-        self.orderType=orderType
+        self.shuffleType=shuffleType
         self.doOnce=doOnce
         
         if choiceProbs is not None:
@@ -93,9 +93,9 @@ class ArraySource(DataStream):
         
     def yieldArrays(self):
         while self.isRunning:
-            if self.orderType==self.SHUFFLE:
+            if self.shuffleType==self.SHUFFLE:
                 np.random.shuffle(self.indices)
-            elif self.orderType==self.CHOICE:
+            elif self.shuffleType==self.CHOICE:
                 self.indices=np.random.choice(range(self.arrayLen),self.arrayLen,p=self.choiceProbs)
                 
             for i in self.indices:
@@ -106,7 +106,7 @@ class ArraySource(DataStream):
                 
                 
 class NPZFileSource(ArraySource):
-    def __init__(self,fileName,arrayNames,orderType=ArraySource.NONE,doOnce=False):
+    def __init__(self,fileName,arrayNames,shuffleType=ArraySource.NONE,doOnce=False):
         self.fileName=fileName
         
         dat=np.load(fileName)
@@ -119,7 +119,7 @@ class NPZFileSource(ArraySource):
                 
         arrays=[dat[name] for name in arrayNames]
         
-        super().__init__(*arrays,orderType=orderType,doOnce=doOnce)
+        super().__init__(*arrays,shuffleType=shuffleType,doOnce=doOnce)
         
 
 class RandomGenerator(DataStream):
@@ -172,14 +172,20 @@ class ThreadAugmentStream(AugmentStream):
         self.batchArrays=None
         
     def getLocalGen(self):
+        '''Returns a non-threaded iterator, ie. behaves like AugmentStream.'''
         return super().__iter__()
         
-    def _applyAugments(self,arrays):
+    def applyAugments(self,arrays):
+        '''Apply the augmentations to single-instance arrays, returning a single set of arrays.'''
         for a in self.generate(arrays):
             return a
         
     def _applyAugmentThread(self,index,arrays):
-        arrays=self._applyAugments(arrays)
+        '''
+        Apply the augmentations to `arrays` and storing results in the position `index` in the appropriate array of 
+        self.batchArrays. This is meant to be called by threads.
+        '''
+        arrays=self.applyAugments(arrays)
         
         for i,arr in enumerate(arrays):
             self.batchArrays[i][index][...]=arr
@@ -193,7 +199,7 @@ class ThreadAugmentStream(AugmentStream):
                 srcVals.append(srcVal)
 
                 if arraySizeTypes is None:
-                    testAug=self._applyAugments(srcVals[0])
+                    testAug=self.applyAugments(srcVals[0])
                     arraySizeTypes=tuple(((self.batchSize,)+a.shape,a.dtype) for a in testAug)
                     
                 if len(srcVals)==self.batchSize:
