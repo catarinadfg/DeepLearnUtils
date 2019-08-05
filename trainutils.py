@@ -5,7 +5,7 @@
 from __future__ import division, print_function
 import subprocess, re, time, platform, threading, random, contextlib
 from collections import OrderedDict
-from itertools import product
+from itertools import product, starmap
 import inspect
 import numpy as np
 import scipy.ndimage, scipy.spatial
@@ -407,7 +407,7 @@ def iterPatchSlices(dims,patchSize,startPos=()):
     patchSize=tuple(p or dims[i] for i,p in enumerate(patchSize))
     
     # collect the ranges to step over each dimension
-    ranges=tuple(range(s,d,p) for p,s,d in zip(patchSize,startPos,dims))
+    ranges = tuple(starmap(range, zip(startPos, dims, patchSize)))
     
     # choose patches by applying product to the ranges
     for position in product(*ranges[::-1]): # reverse ranges order to iterate in index order

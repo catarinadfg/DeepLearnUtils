@@ -1,7 +1,8 @@
 *~
-#*
+\#*
 *.pyc
 .DS_Store
 nohup.out
 *.log
 .ipynb_checkpoints
+.idea
