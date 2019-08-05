@@ -76,33 +76,32 @@ class ArraySource(DataStream):
     
     def __init__(self,*arrays,shuffleType=NONE,doOnce=False,choiceProbs=None):
         self.arrays=tuple(map(np.atleast_1d,arrays))
-        self.arrayLen=self.arrays[0].shape[0]
         
-        assert all(arr.shape[0]==self.arrayLen for arr in self.arrays), \
+        assert all(arr.shape[0]==self.arrays[0].shape[0] for arr in self.arrays), \
             'All input arrays must have the same length for dimension 0.'
             
         assert shuffleType in (self.SHUFFLE,self.CHOICE,self.NONE)
         
-        self.indices=np.arange(self.arrayLen)
         self.shuffleType=shuffleType
         self.doOnce=doOnce
+        self.choiceProbs=None
         
-        if choiceProbs is not None:
-            self.choiceProbs=np.atleast_1d(choiceProbs)
-            self.choiceProbs=self.choiceProbs/self.choiceProbs.sum()
-        else:
-            self.choiceProbs=None
+        if self.choiceProbs is not None:
+            self.choiceProbs=np.atleast_1d(self.choiceProbs)/np.sum(self.choiceProbs)
         
         super().__init__(self.yieldArrays())
         
     def yieldArrays(self):
+        arrayLen=self.arrays[0].shape[0]
+        indices=np.arange(arrayLen)
+        
         while self.isRunning:
             if self.shuffleType==self.SHUFFLE:
-                np.random.shuffle(self.indices)
+                np.random.shuffle(indices)
             elif self.shuffleType==self.CHOICE:
-                self.indices=np.random.choice(range(self.arrayLen),self.arrayLen,p=self.choiceProbs)
+                indices=np.random.choice(range(arrayLen),arrayLen,p=self.choiceProbs)
                 
-            for i in self.indices:
+            for i in indices:
                 yield tuple(arr[i] for arr in self.arrays)
                 
             if self.doOnce:
