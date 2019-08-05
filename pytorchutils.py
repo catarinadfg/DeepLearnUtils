@@ -15,6 +15,7 @@ import augments
 import datasource
 import numpy as np
 
+
 def convertAug(images,out):
     '''Convert `images' and `out' to CH[W] format, assuming `images' is HWC and `out' is H[W].'''
     return images.transpose([2,0,1]), out[np.newaxis,...]
@@ -30,8 +31,20 @@ def convertBoth(images,out):
 
 
 @augments.augment(prob=1.0)
-def convert(*arrs):
-    return lambda im:im.transpose([2,0,1])
+def convert(*arrs,dims=2):
+    """
+    Convert arrays to Pytorch format by adding a 1-length first dimension if the ndim of an array is `dims`, or 
+    transposing the last dimension to become the first otherwise. This assumes `arrays` lack a channel dimension 
+    or have a channel dimension last. The ndim of the members of `arrays` minus the channels dimension must match 
+    `dims` to ensure the choice of transform is correct.
+    """
+    def _convOp(arr):
+        if arr.ndim==dims:
+            return arr[None]
+        else: 
+            return np.rollaxis(arr,2)
+            
+    return _convOp
 
 
 class SimpleTrainer(object):

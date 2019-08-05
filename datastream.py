@@ -38,6 +38,10 @@ class DataStream(object):
         self.isRunning=False
         if hasattr(self.src,'stop'):
             self.src.stop()
+            
+    def getGenFunc(self):
+        stream=iter(self)
+        return lambda:next(stream)
         
     
 class FuncStream(DataStream):
@@ -134,10 +138,12 @@ class RandomGenerator(DataStream):
     
 class TestImageGenerator(DataStream):
     """Generate 2D image/seg test image pairs."""
-    def __init__(self,width,height,noiseMax=1.0,numSegClasses=1):
+    def __init__(self,width,height,numObjs=12,radMax=30,noiseMax=0.0,numSegClasses=5):
         self.doGen=True
         self.width=width
         self.height=height
+        self.numObjs=numObjs
+        self.radMax=radMax
         self.noiseMax=noiseMax
         self.numSegClasses=numSegClasses
         
@@ -148,12 +154,28 @@ class TestImageGenerator(DataStream):
         
     def generateImage(self):
         while self.isRunning:
-            yield self.func(self.width,self.height,noiseMax=self.noiseMax,numSegClasses=self.numSegClasses)
+            yield self.func(self.width,self.height,self.numObjs,self.radMax,self.noiseMax,self.numSegClasses)
             
-            
-class AugmentStream(DataStream):
-    def __init__(self,src,augments=[]):
+
+class BatchStream(DataStream):
+    def __init__(self,src,batchSize):
         super().__init__(src)
+        self.batchSize=batchSize
+        
+    def __iter__(self):
+        srcVals=[]
+        
+        for srcVal in super().__iter__():
+            srcVals.append(srcVal)
+
+            if len(srcVals)==self.batchSize:
+                yield tuple(map(np.stack,zip(*srcVals)))
+                srcVals=[]
+                
+            
+class AugmentStream(BatchStream):
+    def __init__(self,src,batchSize,augments=[]):
+        super().__init__(src,batchSize)
         self.augments=augments
         
     def generate(self,arrays):
@@ -166,8 +188,7 @@ class AugmentStream(DataStream):
 
 class ThreadAugmentStream(AugmentStream):
     def __init__(self,src,batchSize,numThreads=None,augments=[]):
-        super().__init__(src,augments)
-        self.batchSize=batchSize
+        super().__init__(src,batchSize,augments)
         self.numThreads=numThreads
         self.batchArrays=None
         
@@ -203,7 +224,7 @@ class ThreadAugmentStream(AugmentStream):
                     arraySizeTypes=tuple(((self.batchSize,)+a.shape,a.dtype) for a in testAug)
                     
                 if len(srcVals)==self.batchSize:
-                    self.batchArray=tuple(np.zeros(*st) for st in self.arraySizeTypes) # create fresh arrays each time
+                    self.batchArrays=tuple(np.zeros(*st) for st in arraySizeTypes) # create fresh arrays each time
                     tp.starmap(self._applyAugmentThread,list(enumerate(srcVals)))
                     yield self.batchArrays
                     srcVals=[]
