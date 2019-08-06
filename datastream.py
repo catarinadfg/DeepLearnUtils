@@ -72,21 +72,27 @@ def streamgen(func):
 class ArraySource(DataStream):
     SHUFFLE='shuffle'
     CHOICE='choice'
-    NONE='none'
+    LINEAR='linear'
     
-    def __init__(self,*arrays,shuffleType=NONE,doOnce=False,choiceProbs=None):
+    def __init__(self,*arrays,orderType=LINEAR,doOnce=False,choiceProbs=None):
         self.arrays=tuple(map(np.atleast_1d,arrays))
+        arrayLen=self.arrays[0].shape[0]
         
-        assert all(arr.shape[0]==self.arrays[0].shape[0] for arr in self.arrays), \
-            'All input arrays must have the same length for dimension 0.'
+        if any(arr.shape[0]!=arrayLen for arr in self.arrays):
+            raise ValueError('All input arrays must have the same length for dimension 0')
             
-        assert shuffleType in (self.SHUFFLE,self.CHOICE,self.NONE)
+        if orderType not in (self.SHUFFLE,self.CHOICE,self.LINEAR):
+            raise ValueError('Invalid orderType value %r'%(orderType,))
         
-        self.shuffleType=shuffleType
+        self.orderType=orderType
         self.doOnce=doOnce
         self.choiceProbs=None
         
         if self.choiceProbs is not None:
+            if self.choiceProbs.shape[0]!=arrayLen:
+                raise ValueError('Length of choiceProbs (%i) must match that of input arrays (%i)'%
+                                 (self.choiceProbs.shape[0],arrayLen))
+                
             self.choiceProbs=np.atleast_1d(self.choiceProbs)/np.sum(self.choiceProbs)
         
         super().__init__(self.yieldArrays())
@@ -96,9 +102,9 @@ class ArraySource(DataStream):
         indices=np.arange(arrayLen)
         
         while self.isRunning:
-            if self.shuffleType==self.SHUFFLE:
+            if self.orderType==self.SHUFFLE:
                 np.random.shuffle(indices)
-            elif self.shuffleType==self.CHOICE:
+            elif self.orderType==self.CHOICE:
                 indices=np.random.choice(range(arrayLen),arrayLen,p=self.choiceProbs)
                 
             for i in indices:
@@ -109,7 +115,7 @@ class ArraySource(DataStream):
                 
                 
 class NPZFileSource(ArraySource):
-    def __init__(self,fileName,arrayNames,shuffleType=ArraySource.NONE,doOnce=False):
+    def __init__(self,fileName,arrayNames,orderType=ArraySource.LINEAR,doOnce=False):
         self.fileName=fileName
         
         dat=np.load(fileName)
@@ -122,7 +128,7 @@ class NPZFileSource(ArraySource):
                 
         arrays=[dat[name] for name in arrayNames]
         
-        super().__init__(*arrays,shuffleType=shuffleType,doOnce=doOnce)
+        super().__init__(*arrays,orderType=orderType,doOnce=doOnce)
         
 
 class RandomGenerator(DataStream):
