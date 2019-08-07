@@ -6,8 +6,7 @@ import tensorflow.nn as nn
 import tensorflow.keras as tfk
 import numpy as np
 import unittest
-from trainutils import samePadding, calculateOutShape
-
+from trainutils import samePadding, calculateOutShape, createTestImage
 
 def predictSegmentation(logits):
     '''
@@ -54,6 +53,14 @@ class DiceLoss(tfk.losses.Loss):
         score = 2.0 * intersection / sums
 
         return 1.0 - tf.reduce_mean(score)
+    
+    
+class Identity(tfk.Model):
+    def __init__(self, *_, **__):
+        super().__init__()
+
+    def call(self, x):
+        return x    
 
 
 class Convolution2D(tfk.Sequential):
@@ -155,7 +162,7 @@ class AutoEncoder(tfk.Model):
         return encode, layerChannels
 
     def _getIntermediateModule(self, inChannels, numInterUnits):
-        intermediate = None
+        intermediate = Identity()
         layerChannels = inChannels
 
         if self.interChannels:
@@ -208,8 +215,7 @@ class AutoEncoder(tfk.Model):
 
     def call(self, x):
         x = self.encode(x)
-        if self.intermediate is not None:
-            x = self.intermediate(x)
+        x = self.intermediate(x)
         x = self.decode(x)
         return (x,)
 
@@ -273,7 +279,7 @@ class UnetBlock(tfk.Model):
     def call(self, x):
         enc = self.encode(x)
         sub = self.subblock(enc)
-        dec = tf.concat([enc, sub], enc.ndim - 1)
+        dec = tf.concat([enc, sub], len(enc.shape) - 1)
         return self.decode(dec)
 
 
@@ -325,8 +331,8 @@ class Unet(tfk.Model):
                              self.dropout, convOnly=isTop and self.numResUnits == 0, isTransposed=True)
 
         if self.numResUnits > 0:
-            return tfk.Sequential(conv, ResidualUnit2D(outChannels, outChannels, 1, self.kernelSize, 1,
-                                                       self.instanceNorm, self.dropout, lastConvOnly=isTop))
+            return tfk.Sequential([conv, ResidualUnit2D(outChannels, outChannels, 1, self.kernelSize, 1,
+                                                       self.instanceNorm, self.dropout, lastConvOnly=isTop)])
         else:
             return conv
 
@@ -342,8 +348,6 @@ class Unet(tfk.Model):
 
 class ImageTestCase(unittest.TestCase):
     def setUp(self):
-        from trainutils import createTestImage
-
         self.inShape = (128, 128)
         self.inputChannels = 1
         self.outputChannels = 4
@@ -486,6 +490,12 @@ class TestUnet(ImageTestCase):
 
     def test_nclass1(self):
         net = Unet(1, self.numClasses + 1, [4, 8, 16], [2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.seg1hot.shape)
+        self.assertEqual(out[1].shape, self.imT.shape[:-1])
+        
+    def test_residual1(self):
+        net = Unet(1, self.numClasses + 1, [4, 8, 16], [2, 2],numResUnits=2)
         out = net(self.imT)
         self.assertEqual(out[0].shape, self.seg1hot.shape)
         self.assertEqual(out[1].shape, self.imT.shape[:-1])

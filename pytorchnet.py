@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.nn.modules.loss import _Loss
-from trainutils import samePadding, calculateOutShape
-
+from trainutils import samePadding, calculateOutShape, createTestImage
+import unittest
 
 def oneHot(labels, numClasses):
     '''
@@ -24,7 +24,7 @@ def oneHot(labels, numClasses):
     return onehot.reshape(*onehotshape)
 
 
-def normalInit(m, std=0.02, normalFunc=torch.nn.init.normal_):
+def normalInit(m, std=0.02, normalFunc=nn.init.normal_):
     '''
     Initialize the weight and bias tensors of `m' and its submodules to values from a normal distribution with a stddev
     of `std'. Weight tensors of convolution and linear modules are initialized with a mean of 0, batch norm modules with
@@ -35,11 +35,11 @@ def normalInit(m, std=0.02, normalFunc=torch.nn.init.normal_):
     if getattr(m, 'weight', None) is not None and (cname.find('Conv') != -1 or cname.find('Linear') != -1):
         normalFunc(m.weight.data, 0.0, std)
         if getattr(m, 'bias', None) is not None:
-            torch.nn.init.constant_(m.bias.data, 0.0)
+            nn.init.constant_(m.bias.data, 0.0)
 
     elif cname.find('BatchNorm') != -1:
         normalFunc(m.weight.data, 1.0, std)
-        torch.nn.init.constant_(m.bias.data, 0)
+        nn.init.constant_(m.bias.data, 0)
 
 
 def addNormalNoise(m, mean=0, std=1e-5):
@@ -98,6 +98,14 @@ def gaussianConv(numChannels, dimensions, kernelSize, stride=2, sigma=0.75):
     return conv
 
 
+class Identity(nn.Module):
+    def __init__(self, *_, **__):
+        super().__init__()
+
+    def forward(self, x):
+        return x
+    
+
 class DiceLoss(_Loss):
     '''
     Multiclass dice loss. Input logits 'source' (BNHW where N is number of classes) is compared with ground truth 
@@ -124,7 +132,8 @@ class DiceLoss(_Loss):
             tsum = oneHot(target, source.shape[1])  # BCHW -> BCHWN
             tsum = tsum[:, 0].permute(0, 3, 1, 2).contiguous()  # BCHWN -> BNHW
 
-            assert tsum.shape == source.shape, 'One-hot encoding of target has differing shape from source'
+            assert tsum.shape == source.shape, \
+                'One-hot encoding of target has differing shape (%r) from source (%r)'%(tsum.shape,source.shape)
 
             # exclude background category so that it doesn't overwhelm the other segmentations if they are small
             if not self.includeBackground:
@@ -151,7 +160,7 @@ class KLDivLoss(_Loss):
     KLD dominating the output.
     '''
 
-    def __init__(self, reconLoss=torch.nn.BCELoss(reduction='sum'), beta=1.0):
+    def __init__(self, reconLoss=nn.BCELoss(reduction='sum'), beta=1.0):
         '''Initialize the loss function with the given reconstruction loss function `reconloss' and KLD weight `beta'.'''
         super().__init__()
         self.reconLoss = reconLoss
@@ -165,7 +174,7 @@ class KLDivLoss(_Loss):
         return KLD + self.reconLoss(reconx, x)
 
 
-class ThresholdMask(torch.nn.Module):
+class ThresholdMask(nn.Module):
     '''Binary threshold layer which converts all values above the given threshold to 1 and all below to 0.'''
 
     def __init__(self, thresholdValue=0):
@@ -178,7 +187,7 @@ class ThresholdMask(torch.nn.Module):
         return (t / (t + self.eps)) / (1 - self.eps)
 
 
-class DNN(torch.nn.Module):
+class DNN(nn.Module):
     '''Plain dense neural network of linear layers using dropout and PReLU activation.'''
 
     def __init__(self, inChannels, outChannels, hiddenChannels, dropout=0, bias=True):
@@ -191,20 +200,20 @@ class DNN(torch.nn.Module):
         self.outChannels = outChannels
         self.dropout = dropout
         self.hiddenChannels = list(hiddenChannels)
-        self.hiddens = torch.nn.Sequential()
+        self.hiddens = nn.Sequential()
 
         prevChannels = self.inChannels
         for i, c in enumerate(hiddenChannels):
             self.hiddens.add_module('hidden_%i' % i, self._getLayer(prevChannels, c, bias))
             prevChannels = c
 
-        self.output = torch.nn.Linear(prevChannels, outChannels, bias)
+        self.output = nn.Linear(prevChannels, outChannels, bias)
 
     def _getLayer(self, inChannels, outChannels, bias):
-        return torch.nn.Sequential(
-            torch.nn.Linear(inChannels, outChannels, bias),
-            torch.nn.Dropout(self.dropout),
-            torch.nn.PReLU()
+        return nn.Sequential(
+            nn.Linear(inChannels, outChannels, bias),
+            nn.Dropout(self.dropout),
+            nn.PReLU()
         )
 
     def forward(self, x):
@@ -215,7 +224,7 @@ class DNN(torch.nn.Module):
         return x
 
 
-class DenseVAE(torch.nn.Module):
+class DenseVAE(nn.Module):
     # like https://github.com/pytorch/examples/blob/master/vae/main.py but configurable through the constructor
 
     def __init__(self, inChannels, outChannels, latentSize, encodeChannels, decodeChannels, dropout=0, bias=True):
@@ -244,7 +253,7 @@ class DenseVAE(torch.nn.Module):
         self.decode.add_module('final', nn.Linear(prevChannels, outChannels, bias))
 
     def _getLayer(self, inChannels, outChannels, bias):
-        return torch.nn.Sequential(
+        return nn.Sequential(
             nn.Linear(inChannels, outChannels, bias),
             nn.Dropout(self.dropout),
             nn.PReLU()
@@ -359,7 +368,7 @@ class ResidualUnit2D(nn.Module):
         return cx + res  # add the residual to the output
 
 
-class DenseBlock(torch.nn.Module):
+class DenseBlock(nn.Module):
     def __init__(self, inChannels, channels, dilations=[], kernelSize=3, numResUnits=0, instanceNorm=True, dropout=0):
         super().__init__()
         self.inChannels = inChannels
@@ -531,7 +540,7 @@ class AutoEncoder(nn.Module):
         return encode, layerChannels
 
     def _getIntermediateModule(self, inChannels, numInterUnits):
-        intermediate = None
+        intermediate = Identity() # nn.Identity added in 1.1
         layerChannels = inChannels
 
         if self.interChannels:
@@ -584,8 +593,7 @@ class AutoEncoder(nn.Module):
 
     def forward(self, x):
         x = self.encode(x)
-        if self.intermediate is not None:
-            x = self.intermediate(x)
+        x = self.intermediate(x)
         x = self.decode(x)
         return (x,)
 
@@ -762,43 +770,164 @@ class Unet(nn.Module):
         return x, predictSegmentation(x)
 
 
+########################################################################################################################
+### Tests
+########################################################################################################################
+
+
+class ImageTestCase(unittest.TestCase):
+    def setUp(self):
+        self.inShape = (128, 128)
+        self.inputChannels = 1
+        self.outputChannels = 4
+        self.numClasses = 3
+
+        im, msk = createTestImage(self.inShape[0], self.inShape[1], 4, 20, 0, self.numClasses)
+
+        self.imT = torch.tensor(im[None, None])
+
+        self.seg1 = torch.tensor((msk[None, None] > 0).astype(np.float32))
+        self.segn = torch.tensor(msk[None, None])
+        self.seg1hot = oneHot(torch.tensor(msk[None]), self.numClasses + 1).permute([0,3,1,2]).to(torch.float32)
+
+
+class TestDiceLoss(ImageTestCase):
+    def setUp(self):
+        super().setUp()
+        self.loss = DiceLoss()
+
+    def test_shapes(self):
+        self.assertEqual(self.seg1.shape, (1, 1, self.inShape[0], self.inShape[1]))
+        self.assertEqual(self.segn.shape, (1, 1, self.inShape[0], self.inShape[1]))
+        self.assertEqual(self.seg1hot.shape, (1, self.numClasses + 1, self.inShape[0], self.inShape[1]))
+
+    def test_binary1(self):
+        l = self.loss(
+            source=self.seg1,
+            target=self.seg1
+        )
+        self.assertTrue(l.numpy() > 0)
+
+    def test_nclass1(self):
+        l = self.loss(
+            target=self.segn,
+            source=self.seg1hot
+        )
+        self.assertTrue(l.numpy() > 0)
+
+
+class TestConvolution2D(ImageTestCase):
+    def test_conv1(self):
+        conv = Convolution2D(self.inputChannels,self.outputChannels)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0], self.inShape[1])
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_convOnly1(self):
+        conv = Convolution2D(self.inputChannels,self.outputChannels, convOnly=True)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0], self.inShape[1])
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_stride1(self):
+        conv = Convolution2D(self.inputChannels,self.outputChannels, strides=2)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0] // 2, self.inShape[1] // 2)
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_dilation1(self):
+        conv = Convolution2D(self.inputChannels,self.outputChannels, dilation=3)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0], self.inShape[1])
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_dropout1(self):
+        conv = Convolution2D(self.inputChannels,self.outputChannels, dropout=0.15)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0], self.inShape[1])
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_transpose1(self):
+        conv = Convolution2D(self.inputChannels,self.outputChannels, isTransposed=True)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0], self.inShape[1])
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_transpose2(self):
+        conv = Convolution2D(self.inputChannels,self.outputChannels, strides=2, isTransposed=True)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0] * 2, self.inShape[1] * 2)
+        self.assertEqual(out.shape, expectedShape)
+
+
+class TestResidualUnit2D(ImageTestCase):
+    def test_convOnly1(self):
+        conv = ResidualUnit2D(1, self.outputChannels)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0], self.inShape[1])
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_stride1(self):
+        conv = ResidualUnit2D(1, self.outputChannels, strides=2)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0] // 2, self.inShape[1] // 2)
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_dilation1(self):
+        conv = ResidualUnit2D(1, self.outputChannels, dilation=3)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0], self.inShape[1])
+        self.assertEqual(out.shape, expectedShape)
+
+    def test_dropout1(self):
+        conv = ResidualUnit2D(1, self.outputChannels, dropout=0.15)
+        out = conv(self.imT)
+        expectedShape = (1, self.outputChannels, self.inShape[0], self.inShape[1])
+        self.assertEqual(out.shape, expectedShape)
+
+
+class TestAutoEncoder(ImageTestCase):
+    def test_1channel1(self):
+        net = AutoEncoder(1, 1, [4, 8, 16], [2, 2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.imT.shape)
+
+    def test_nchannel1(self):
+        net = AutoEncoder(1, self.numClasses + 1, [4, 8, 16], [2, 2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.seg1hot.shape)
+    
+    
+class TestVarAutoEncoder(ImageTestCase):
+    def test_1channel1(self):
+        inShape=self.imT.shape[2:]+(self.imT.shape[1],)
+        net = VarAutoEncoder(inShape, 1, 64, [4, 8, 16], [2, 2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.imT.shape)
+
+    def test_nchannel1(self):
+        inShape=self.imT.shape[2:]+(self.imT.shape[1],)
+        unet = VarAutoEncoder(inShape, self.numClasses + 1, 64, [4, 8, 16], [2, 2, 2])
+        out = unet(self.imT)
+        self.assertEqual(out[0].shape, self.seg1hot.shape)
+        
+
+class TestUnet(ImageTestCase):
+    def test_1class1(self):
+        outShape=(self.imT.shape[0],)+self.imT.shape[2:]
+        net = Unet(1, 1, [4, 8, 16], [2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.imT.shape)
+        self.assertEqual(out[1].shape, outShape)
+
+    def test_nclass1(self):
+        outShape=(self.imT.shape[0],)+self.imT.shape[2:]
+        net = Unet(1, self.numClasses + 1, [4, 8, 16], [2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.seg1hot.shape)
+        self.assertEqual(out[1].shape, outShape)
+
+
 if __name__ == '__main__':
-    from trainutils import createTestImage
+    unittest.main()
     
-    im,msk=createTestImage(128,128,4,20,0,3)
-    t=torch.tensor(msk)
-    
-    loss=DiceLoss()
-    
-    print(loss(t[None,None].to(torch.float32),t[None,None]))
-    
-#    t = torch.rand((10, 1, 256, 256))
-
-#    b1=UnetBlock(nn.Conv2d(5,10,3,2,samePadding(3)),nn.ConvTranspose2d(10,5,3,2,1,1),None)
-#    b2=UnetBlock(nn.Conv2d(3,5,3,2,samePadding(3)),nn.ConvTranspose2d(10,3,3,2,1,1),b1,True)
-
-#    print(b1(torch.zeros(22,5,16,16)).shape)
-#    print(b2(torch.zeros(22,3,16,16)).shape)
-
-#    unet=Unet(1,3,[5,10,15,20],[2,2,2,2])
-#    print(unet)
-#    print(unet(torch.zeros((2,1,16,16)))[0].shape)
-
-#    a=AutoEncoder(1,1,[32, 64, 128],[1,2,2],5,3,0,0)
-#    print(t.shape,a(t)[0].shape)
-
-#    d=Discriminator((256,256,1),(8,16,32),(2,2,2),3,0,lastAct=None)
-#    print(t.shape,d(t)[0].shape)
-
-#    t=torch.rand((10,1,32,32))
-#    print(t.shape,ConvTranspose2D(1,1,2,2)(t).shape)
-#    print(t.shape,ConvTranspose2D(1,1,2,3)(t).shape)
-#    print(t.shape,ConvTranspose2D(1,1,2,4)(t).shape)
-#    print(t.shape,ConvTranspose2D(1,1,2,5)(t).shape)
-
-#    r=ResidualUnit2D(1,2,1)
-#    print(r(torch.rand(10,1,32,32)).shape)
-
-#    dae=DiAutoEncoder(1,2,[2,4],[2,4])
-#    print(dae)
-#    print(dae(t)[0].shape)
