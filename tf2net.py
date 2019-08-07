@@ -6,6 +6,7 @@ import tensorflow.nn as nn
 import tensorflow.keras as tfk
 import numpy as np
 import unittest
+from trainutils import samePadding, calculateOutShape
 
 
 def predictSegmentation(logits):
@@ -56,9 +57,10 @@ class DiceLoss(tfk.losses.Loss):
 
 
 class Convolution2D(tfk.Sequential):
-    def __init__(self, outChannels, strides=1, kernelSize=3, instanceNorm=True,
+    def __init__(self, inChannels, outChannels, strides=1, kernelSize=3, instanceNorm=True,
                  dropout=0, dilation=1, bias=True, convOnly=False, isTransposed=False):
         super().__init__()
+        self.inChannels=inChannels
         self.outChannels = outChannels
         self.isTransposed = isTransposed
 
@@ -80,7 +82,7 @@ class Convolution2D(tfk.Sequential):
             if dropout > 0:
                 self.add(tfk.layers.Dropout(dropout))
 
-            self.add(tfk.layers.PReLU())
+            self.add(tfk.layers.PReLU(shared_axes=(1,2,3)))
 
 
 class ResidualUnit2D(tfk.Model):
@@ -96,7 +98,8 @@ class ResidualUnit2D(tfk.Model):
 
         for su in range(subunits):
             convOnly = lastConvOnly and su == (subunits - 1)
-            unit = Convolution2D(outChannels, sstrides, kernelSize, instanceNorm, dropout, dilation, bias, convOnly)
+            unit = Convolution2D(inChannels, outChannels, sstrides, kernelSize, 
+                                 instanceNorm, dropout, dilation, bias, convOnly)
             self.conv.add(unit)
             sstrides = 1
 
@@ -113,6 +116,151 @@ class ResidualUnit2D(tfk.Model):
         res = x if self.residual is None else self.residual(x)  # create the additive residual from x
         cx = self.conv(x)  # apply x to sequence of operations
         return cx + res  # add the residual to the output
+    
+    
+class AutoEncoder(tfk.Model):
+    def __init__(self, inChannels, outChannels, channels, strides, kernelSize=3, upKernelSize=3,
+                 numResUnits=0, interChannels=[], interDilations=[], numInterUnits=2, instanceNorm=True, dropout=0):
+        super().__init__()
+        assert len(channels) == len(strides)
+        self.inChannels = inChannels
+        self.outChannels = outChannels
+        self.channels = list(channels)
+        self.strides = list(strides)
+        self.kernelSize = kernelSize
+        self.upKernelSize = upKernelSize
+        self.numResUnits = numResUnits
+        self.instanceNorm = instanceNorm
+        self.dropout = dropout
+        self.numInterUnits = numInterUnits
+        self.interChannels = list(interChannels)
+        self.interDilations = list(interDilations or [1] * len(interChannels))
+
+        self.encodedChannels = inChannels
+        decodeChannelList=list(channels[-2::-1]) + [outChannels]
+        
+        self.encode, self.encodedChannels = self._getEncodeModule(self.encodedChannels, channels, strides)
+        self.intermediate, self.encodedChannels = self._getIntermediateModule(self.encodedChannels, numInterUnits)
+        self.decode, _ = self._getDecodeModule(self.encodedChannels, decodeChannelList,strides[::-1] or [1])
+
+    def _getEncodeModule(self, inChannels, channels, strides):
+        encode = tfk.Sequential()
+        layerChannels = inChannels
+
+        for i, (c, s) in enumerate(zip(channels, strides)):
+            layer = self._getEncodeLayer(layerChannels, c, s, False)
+            encode.add(layer)
+            layerChannels = c
+
+        return encode, layerChannels
+
+    def _getIntermediateModule(self, inChannels, numInterUnits):
+        intermediate = None
+        layerChannels = inChannels
+
+        if self.interChannels:
+            intermediate = tfk.Sequential()
+
+            for i, (dc, di) in enumerate(zip(self.interChannels, self.interDilations)):
+
+                if self.numInterUnits > 0:
+                    unit = ResidualUnit2D(layerChannels, dc, 1, self.kernelSize,
+                                          self.numInterUnits, self.instanceNorm, self.dropout, di)
+                else:
+                    unit = Convolution2D(layerChannels, dc, 1, self.kernelSize, self.instanceNorm, self.dropout, di)
+
+                intermediate.add(unit)
+                layerChannels = dc
+
+        return intermediate, layerChannels
+
+    def _getDecodeModule(self, inChannels, channels, strides):
+        decode = tfk.Sequential()
+        layerChannels = inChannels
+
+        for i, (c, s) in enumerate(zip(channels, strides)):
+            layer = self._getDecodeLayer(layerChannels, c, s, i == (len(strides) - 1))
+            decode.add(layer)
+            layerChannels = c
+
+        return decode, layerChannels
+
+    def _getEncodeLayer(self, inChannels, outChannels, strides, isLast):
+        if self.numResUnits > 0:
+            return ResidualUnit2D(inChannels, outChannels, strides, self.kernelSize,
+                                  self.numResUnits, self.instanceNorm, self.dropout, lastConvOnly=isLast)
+        else:
+            return Convolution2D(inChannels, outChannels, strides, self.kernelSize, self.instanceNorm, self.dropout,
+                                 convOnly=isLast)
+
+    def _getDecodeLayer(self, inChannels, outChannels, strides, isLast):
+        conv = Convolution2D(inChannels, outChannels, strides, self.upKernelSize,
+                             self.instanceNorm, self.dropout, convOnly=isLast and self.numResUnits == 0,
+                             isTransposed=True)
+
+        if self.numResUnits > 0:
+            return tfk.Sequential([conv,
+                                 ResidualUnit2D(outChannels, outChannels, 1, self.kernelSize, 1, self.instanceNorm,
+                                                self.dropout, lastConvOnly=isLast)
+                                 ])
+        else:
+            return conv
+
+    def call(self, x):
+        x = self.encode(x)
+        if self.intermediate is not None:
+            x = self.intermediate(x)
+        x = self.decode(x)
+        return (x,)
+
+
+class VarAutoEncoder(AutoEncoder):
+    def __init__(self, inShape, outChannels, latentSize, channels, strides, kernelSize=3, upKernelSize=3,
+                 numResUnits=0, interChannels=[], interDilations=[], numInterUnits=2, instanceNorm=True, dropout=0):
+
+        self.inHeight, self.inWidth, inChannels = inShape
+        self.latentSize = latentSize
+        self.finalSize = np.asarray([self.inHeight, self.inWidth], np.int)
+
+        super().__init__(inChannels, outChannels, channels, strides, kernelSize, upKernelSize, numResUnits,
+                         interChannels, interDilations, numInterUnits, instanceNorm, dropout)
+
+        for s in strides:
+            self.finalSize = calculateOutShape(self.finalSize, self.kernelSize, s, samePadding(self.kernelSize))
+
+        linearSize = int(np.product(self.finalSize)) * self.encodedChannels
+        self.mu = tfk.layers.Dense(self.latentSize)
+        self.logvar = tfk.layers.Dense(self.latentSize)
+        self.decodeL = tfk.layers.Dense(linearSize)
+
+    def encodeForward(self, x):
+        x = self.encode(x)
+        if self.intermediate is not None:
+            x = self.intermediate(x)
+        x = x.view(x.shape[0], -1)
+        mu = self.mu(x)
+        logvar = self.logvar(x)
+        return mu, logvar
+
+    def decodeForward(self, z):
+        x = nn.relu(self.decodeL(z))
+        x = x.view(x.shape[0], self.channels[-1], self.finalSize[0], self.finalSize[1])
+        x = self.decode(x)
+        x = nn.sigmoid(x)
+        return x
+
+    def reparameterize(self, mu, logvar):
+        std = tf.exp(0.5 * logvar)
+
+        if self.training:  # multiply random noise with std only during training
+            std = tf.random.uniform(std.shape).mul(std)
+
+        return std.add_(mu)
+
+    def forward(self, x):
+        mu, logvar = self.encodeForward(x)
+        z = self.reparameterize(mu, logvar)
+        return self.decodeForward(z), mu, logvar, z    
 
 
 class UnetBlock(tfk.Model):
@@ -167,13 +315,13 @@ class Unet(tfk.Model):
             return ResidualUnit2D(inChannels, outChannels, strides, self.kernelSize,
                                   self.numResUnits, self.instanceNorm, self.dropout)
         else:
-            return Convolution2D(outChannels, strides, self.kernelSize, self.instanceNorm, self.dropout)
+            return Convolution2D(inChannels, outChannels, strides, self.kernelSize, self.instanceNorm, self.dropout)
 
     def _getBottomLayer(self, inChannels, outChannels):
         return self._getDownLayer(inChannels, outChannels, 1, False)
 
     def _getUpLayer(self, inChannels, outChannels, strides, isTop):
-        conv = Convolution2D(outChannels, strides, self.upKernelSize, self.instanceNorm,
+        conv = Convolution2D(inChannels, outChannels, strides, self.upKernelSize, self.instanceNorm,
                              self.dropout, convOnly=isTop and self.numResUnits == 0, isTransposed=True)
 
         if self.numResUnits > 0:
@@ -191,11 +339,13 @@ class Unet(tfk.Model):
 ### Tests
 ########################################################################################################################
 
+
 class ImageTestCase(unittest.TestCase):
     def setUp(self):
         from trainutils import createTestImage
 
         self.inShape = (128, 128)
+        self.inputChannels = 1
         self.outputChannels = 4
         self.numClasses = 3
 
@@ -235,43 +385,43 @@ class TestDiceLoss(ImageTestCase):
 
 class TestConvolution2D(ImageTestCase):
     def test_conv1(self):
-        conv = Convolution2D(self.outputChannels)
+        conv = Convolution2D(self.inputChannels,self.outputChannels)
         out = conv(self.imT)
         expectedShape = (1, self.inShape[0], self.inShape[1], self.outputChannels)
         self.assertEqual(out.shape, expectedShape)
 
     def test_convOnly1(self):
-        conv = Convolution2D(self.outputChannels, convOnly=True)
+        conv = Convolution2D(self.inputChannels,self.outputChannels, convOnly=True)
         out = conv(self.imT)
         expectedShape = (1, self.inShape[0], self.inShape[1], self.outputChannels)
         self.assertEqual(out.shape, expectedShape)
 
     def test_stride1(self):
-        conv = Convolution2D(self.outputChannels, strides=2)
+        conv = Convolution2D(self.inputChannels,self.outputChannels, strides=2)
         out = conv(self.imT)
         expectedShape = (1, self.inShape[0] // 2, self.inShape[1] // 2, self.outputChannels)
         self.assertEqual(out.shape, expectedShape)
 
     def test_dilation1(self):
-        conv = Convolution2D(self.outputChannels, dilation=3)
+        conv = Convolution2D(self.inputChannels,self.outputChannels, dilation=3)
         out = conv(self.imT)
         expectedShape = (1, self.inShape[0], self.inShape[1], self.outputChannels)
         self.assertEqual(out.shape, expectedShape)
 
     def test_dropout1(self):
-        conv = Convolution2D(self.outputChannels, dropout=0.15)
+        conv = Convolution2D(self.inputChannels,self.outputChannels, dropout=0.15)
         out = conv(self.imT)
         expectedShape = (1, self.inShape[0], self.inShape[1], self.outputChannels)
         self.assertEqual(out.shape, expectedShape)
 
     def test_transpose1(self):
-        conv = Convolution2D(self.outputChannels, isTransposed=True)
+        conv = Convolution2D(self.inputChannels,self.outputChannels, isTransposed=True)
         out = conv(self.imT)
         expectedShape = (1, self.inShape[0], self.inShape[1], self.outputChannels)
         self.assertEqual(out.shape, expectedShape)
 
     def test_transpose2(self):
-        conv = Convolution2D(self.outputChannels, strides=2, isTransposed=True)
+        conv = Convolution2D(self.inputChannels,self.outputChannels, strides=2, isTransposed=True)
         out = conv(self.imT)
         expectedShape = (1, self.inShape[0] * 2, self.inShape[1] * 2, self.outputChannels)
         self.assertEqual(out.shape, expectedShape)
@@ -303,16 +453,40 @@ class TestResidualUnit2D(ImageTestCase):
         self.assertEqual(out.shape, expectedShape)
 
 
+class TestAutoEncoder(ImageTestCase):
+    def test_1channel1(self):
+        net = AutoEncoder(1, 1, [4, 8, 16], [2, 2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.imT.shape)
+
+    def test_nchannel1(self):
+        net = AutoEncoder(1, self.numClasses + 1, [4, 8, 16], [2, 2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.seg1hot.shape)
+    
+    
+class TestVarAutoEncoder(ImageTestCase):
+    def test_1channel1(self):
+        net = VarAutoEncoder(self.imT.shape[1:], 1, 64, [4, 8, 16], [2, 2, 2])
+        out = net(self.imT)
+        self.assertEqual(out[0].shape, self.imT.shape)
+
+    def test_nchannel1(self):
+        unet = VarAutoEncoder(self.imT.shape[1:], self.numClasses + 1, 64, [4, 8, 16], [2, 2, 2])
+        out = unet(self.imT)
+        self.assertEqual(out[0].shape, self.seg1hot.shape)
+        
+
 class TestUnet(ImageTestCase):
     def test_1class1(self):
-        unet = Unet(1, 1, [4, 8, 16], [2, 2])
-        out = unet(self.imT)
+        net = Unet(1, 1, [4, 8, 16], [2, 2])
+        out = net(self.imT)
         self.assertEqual(out[0].shape, self.imT.shape)
         self.assertEqual(out[1].shape, self.imT.shape[:-1])
 
     def test_nclass1(self):
-        unet = Unet(1, self.numClasses + 1, [4, 8, 16], [2, 2])
-        out = unet(self.imT)
+        net = Unet(1, self.numClasses + 1, [4, 8, 16], [2, 2])
+        out = net(self.imT)
         self.assertEqual(out[0].shape, self.seg1hot.shape)
         self.assertEqual(out[1].shape, self.imT.shape[:-1])
 

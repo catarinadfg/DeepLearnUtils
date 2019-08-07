@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.nn.modules.loss import _Loss
+from trainutils import samePadding, calculateOutShape
 
 
 def oneHot(labels, numClasses):
@@ -21,29 +22,6 @@ def oneHot(labels, numClasses):
     onehot = y[labels.view(-1).long()]
 
     return onehot.reshape(*onehotshape)
-
-
-def samePadding(kernelSize, dilation=1):
-    '''
-    Return the padding value needed to ensure a convolution using the given kernel size produces an output of the same
-    shape as the input for a stride of 1, otherwise ensure a shape of the input divided by the stride rounded down.
-    '''
-    kernelSize = np.atleast_1d(kernelSize)
-    padding = ((kernelSize - 1) // 2) + (dilation - 1)
-
-    return tuple(padding) if padding.shape[0] > 1 else padding[0]
-
-
-def calculateOutShape(inShape, kernelSize, stride, padding):
-    '''
-    Calculate the output tensor shape when applying a convolution to a tensor of shape `inShape' with kernel size 
-    'kernelSize', stride value `stride', and input padding value `padding'. All arguments can be scalars or multiple
-    values, return value is a scalar if all inputs are scalars.
-    '''
-    inShape = np.atleast_1d(inShape)
-    outShape = ((inShape - kernelSize + padding + padding) // stride) + 1
-
-    return tuple(outShape) if outShape.shape[0] > 1 else outShape[0]
 
 
 def normalInit(m, std=0.02, normalFunc=torch.nn.init.normal_):
@@ -497,9 +475,9 @@ class Generator(nn.Module):
         # transform image of shape `startShape' into output shape through transposed convolutions and residual units
         for i, (c, s) in enumerate(zip(channels, strides)):
             isLast = i == len(channels) - 1
-
-            conv = Convolution2D(echannel, c, s, kernelSize, instanceNorm, dropout, 1, bias, isLast or numSubunits > 0,
-                                 True)
+            convOnly=isLast or numSubunits > 0
+            
+            conv = Convolution2D(echannel, c, s, kernelSize, instanceNorm, dropout, 1, bias, convOnly, True)
             self.conv.add_module('invconv_%i' % i, conv)
             echannel = c
 
@@ -509,8 +487,11 @@ class Generator(nn.Module):
 
     def forward(self, x):
         b = x.shape[0]
-        x = self.linear(x.view(b, -1)).reshape((b, self.inChannels, self.inHeight, self.inWidth))
-        return (self.conv(x),)
+        x = x.view(b, -1)
+        x = self.linear(x)
+        x = x.reshape((b, self.inChannels, self.inHeight, self.inWidth))
+        x = self.conv(x)
+        return (x,)
 
 
 class AutoEncoder(nn.Module):
@@ -530,12 +511,13 @@ class AutoEncoder(nn.Module):
         self.numInterUnits = numInterUnits
         self.interChannels = list(interChannels)
         self.interDilations = list(interDilations or [1] * len(interChannels))
-
+        
         self.encodedChannels = inChannels
+        decodeChannelList=list(channels[-2::-1]) + [outChannels]
+        
         self.encode, self.encodedChannels = self._getEncodeModule(self.encodedChannels, channels, strides)
         self.intermediate, self.encodedChannels = self._getIntermediateModule(self.encodedChannels, numInterUnits)
-        self.decode, _ = self._getDecodeModule(self.encodedChannels, list(channels[-2::-1]) + [outChannels],
-                                               strides[::-1] or [1])
+        self.decode, _ = self._getDecodeModule(self.encodedChannels, decodeChannelList,strides[::-1] or [1])
 
     def _getEncodeModule(self, inChannels, channels, strides):
         encode = nn.Sequential()
