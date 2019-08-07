@@ -479,6 +479,11 @@ class TestVarAutoEncoder(ImageTestCase):
         unet = VarAutoEncoder(self.imT.shape[1:], self.numClasses + 1, 64, [4, 8, 16], [2, 2, 2])
         out = unet(self.imT)
         self.assertEqual(out[0].shape, self.seg1hot.shape)
+
+    def test_residual1(self):
+        unet = VarAutoEncoder(self.imT.shape[1:], self.numClasses + 1, 64, [4, 8, 16], [2, 2, 2],numResUnits=2)
+        out = unet(self.imT)
+        self.assertEqual(out[0].shape, self.seg1hot.shape)
         
 
 class TestUnet(ImageTestCase):
