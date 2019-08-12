@@ -4,6 +4,12 @@ from multiprocessing.pool import ThreadPool
 import numpy as np
 
 
+class OrderType(object):
+    SHUFFLE='shuffle'
+    CHOICE='choice'
+    LINEAR='linear'
+    
+
 class DataStream(object):
     """
     The DataStream class represents a chain of iterable objects where one iterates over its source and
@@ -30,7 +36,7 @@ class DataStream(object):
                 yield outVal # yield with syntax too new?
                 
     def generate(self,val):
-        """Generate values from input `val`, by default just yield that. """
+        """Generate values from input `val`, by default just yields that. """
         yield val
         
     def stop(self):
@@ -70,18 +76,22 @@ def streamgen(func):
         
 
 class ArraySource(DataStream):
-    SHUFFLE='shuffle'
-    CHOICE='choice'
-    LINEAR='linear'
-    
-    def __init__(self,*arrays,orderType=LINEAR,doOnce=False,choiceProbs=None):
+    """
+    Creates a data source from one or more equal length arrays. Each data item yielded is a tuple of slices
+    containing a single index in the 0th dimension (ie. batch dimension) for each array. By default values
+    are drawn in sequential order but can be set to shuffle the order so that each value appears exactly once
+    per epoch, or to choose a random selection which may include items multiple times or not at all based off
+    an optional probability distribution. By default the stream will iterate over the arrays indefinitely or
+    optionally only once.
+    """
+    def __init__(self,*arrays,orderType=OrderType.LINEAR,doOnce=False,choiceProbs=None):
         self.arrays=tuple(map(np.atleast_1d,arrays))
         arrayLen=self.arrays[0].shape[0]
         
         if any(arr.shape[0]!=arrayLen for arr in self.arrays):
             raise ValueError('All input arrays must have the same length for dimension 0')
             
-        if orderType not in (self.SHUFFLE,self.CHOICE,self.LINEAR):
+        if orderType not in (OrderType.SHUFFLE,OrderType.CHOICE,OrderType.LINEAR):
             raise ValueError('Invalid orderType value %r'%(orderType,))
         
         self.orderType=orderType
@@ -102,9 +112,9 @@ class ArraySource(DataStream):
         indices=np.arange(arrayLen)
         
         while self.isRunning:
-            if self.orderType==self.SHUFFLE:
+            if self.orderType==OrderType.SHUFFLE:
                 np.random.shuffle(indices)
-            elif self.orderType==self.CHOICE:
+            elif self.orderType==OrderType.CHOICE:
                 indices=np.random.choice(range(arrayLen),arrayLen,p=self.choiceProbs)
                 
             for i in indices:
@@ -113,9 +123,19 @@ class ArraySource(DataStream):
             if self.doOnce:
                 break
                 
+    def getSubArrays(self,indices):
+        subArrays=[a[indices] for a in self.arrays]
+        subProbs=None
+        
+        if self.choiceProbs is not None:
+            subProbs=self.choiceProbs[indices]
+            subProbs=subProbs/np.sum(subProbs)
+            
+        return ArraySource(*subArrays,orderType=self.orderType,doOnce=self.doOnce,choiceProbs=subProbs)
+                
                 
 class NPZFileSource(ArraySource):
-    def __init__(self,fileName,arrayNames,orderType=ArraySource.LINEAR,doOnce=False):
+    def __init__(self,fileName,arrayNames,otherValues=[],orderType=OrderType.LINEAR,doOnce=False):
         self.fileName=fileName
         
         dat=np.load(fileName)
@@ -129,6 +149,8 @@ class NPZFileSource(ArraySource):
         arrays=[dat[name] for name in arrayNames]
         
         super().__init__(*arrays,orderType=orderType,doOnce=doOnce)
+        
+        self.otherValues={n:dat[n] for n in otherValues if n in keys}
         
 
 class RandomGenerator(DataStream):

@@ -121,8 +121,16 @@ class NetworkManager(object):
                 self.savedir=saveDirPrefix
                 self.reload()
             else:
-                self.savedir='%s-%s'%(saveDirPrefix,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
-                os.mkdir(self.savedir)
+                self.setSaveDir(saveDirPrefix)
+#                self.savedir='%s-%s'%(saveDirPrefix,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
+#                os.mkdir(self.savedir)
+                
+    def setSaveDir(self,dirName,addTimestamp=True):
+        if addTimestamp:
+            dirName='%s-%s'%(dirName,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
+            
+        self.savedir=dirName
+        os.mkdir(self.savedir)
                 
     def updateStep(self,step,steploss):
         '''Called after every train step, with arguments for the step number and loss at that step.'''
@@ -139,9 +147,10 @@ class NetworkManager(object):
         '''
         Called after every evaluation step, with arguments for the step number and loss at that step. The `results' list
         is the accumulated result from each application of this method. Given self.traininputs and self.netoutputs this
-        method is expected to calculate some evaluation result or metric from these and append it to `results'.
+        method is expected to calculate some evaluation result or metric from these and append it to `results'. The
+        default implementation simply appends self.netoutputs to `results'.
         '''
-        pass
+        results.append(self.netoutputs)
     
     def netForward(self):
         '''

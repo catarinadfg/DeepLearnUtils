@@ -103,43 +103,28 @@ def normalize(*arrs):
 
 
 @augment(prob=1.0)
-def randPatch(*arrs,patchSize=(32,32),maxCount=10, nonzeroIndex=-1):
-    '''
-    Randomly choose a patch from `arrs' of dimensions `patchSize'. if `nonzeroIndex' is not -1, the patch will be chosen 
-    so that the image at index `nonzeroIndex' has positive non-zero pixels in it, this can be used to ensure the chosen 
-    patch includes segmented features not in the background. 
-    '''
-    testim=arrs[nonzeroIndex]
-    h,w=testim.shape[:2]
+def randPatch(*arrs,patchSize=(32,32)):
+    '''Randomly choose a patch from `arrs' of dimensions `patchSize'.'''
     ph,pw=patchSize
-    ry=0 
-    rx=0
     
-    if nonzeroIndex!=-1:
-        acceptedVals=False
-        count=maxCount
-        
-        while count>=0 and not acceptedVals:
-            ry=np.random.randint(0,h-ph)
-            rx=np.random.randint(0,w-pw)
-            acceptedVals=testim[ry:ry+ph,rx:rx+pw].max()>0
-            count-=1
+    def _randPatch():
+        h,w=im.shape[:2]
+        ry=np.random.randint(0,h-ph)
+        rx=np.random.randint(0,w-pw)
             
-        if not acceptedVals:
-            rx=0
-            ry=0
-
-    return lambda im: im[ry:ry+ph,rx:rx+pw]
+        return im[ry:ry+ph,rx:rx+pw]
+    
+    return _randPatch
 
         
 @augment()
 @checkSegmentMargin
-def shift(*arrs,dimfract=2,order=3):
+def shift(*arrs,dimFract=2,order=3):
     '''Shift arrays randomly by `dimfract' fractions of the array dimensions.'''
     testim=arrs[0]
     x,y=testim.shape[:2]
-    shiftx=np.random.randint(-x//dimfract,x//dimfract)
-    shifty=np.random.randint(-y//dimfract,y//dimfract)
+    shiftx=np.random.randint(-x//dimFract,x//dimFract)
+    shifty=np.random.randint(-y//dimFract,y//dimFract)
     
     def _shift(im):
         h,w=im.shape[:2]
@@ -184,15 +169,17 @@ def zoom(*arrs,zoomrange=0.2):
 
 @augment()
 @checkSegmentMargin
-def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0):
+def rotateZoomPIL(*arrs,margin=5,minFract=0.5,maxFract=2,resample=0):
+    assert all(a.ndim>=2 for a in arrs)
+    
     from PIL import Image
     
     testim=arrs[0]
     x,y=testim.shape[:2]
     
     angle=np.random.random()*360
-    zoomx=x+np.random.randint(-x//dimfract,x//dimfract)
-    zoomy=y+np.random.randint(-y//dimfract,y//dimfract)
+    zoomx=x+np.random.randint(-x*minFract,x*maxFract)
+    zoomy=y+np.random.randint(-y*minFract,y*maxFract)
     
     filters=(Image.NEAREST,Image.ANTIALIAS ,Image.LINEAR,Image.BICUBIC)
     
@@ -207,8 +194,9 @@ def rotateZoomPIL(*arrs,margin=5,dimfract=4,resample=0):
 
             # zoom
             zoomsize=(zoomx,zoomy)
+            pastesize=(im.size[0]//2-zoomsize[0]//2,im.size[1]//2-zoomsize[1]//2)
             newim=Image.new('F',im.size)
-            newim.paste(im.resize(zoomsize,filters[resample]),(im.size[0]//2-zoomsize[0]//2,im.size[1]//2-zoomsize[1]//2))
+            newim.paste(im.resize(zoomsize,filters[resample]),pastesize)
             im=newim
             
             return np.array(im)
