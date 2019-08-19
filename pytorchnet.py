@@ -648,15 +648,20 @@ class VarAutoEncoder(AutoEncoder):
 
 
 class CycleEncoder(nn.Module):
-    def __init__(self, inChannels, outChannels, channels, strides, kernelSize=3, upKernelSize=3, numResUnits=0,
-                 interChannels=[], interDilations=[], numInterUnits=2, instanceNorm=True, dropout=0, noiseStd=1e-5):
-        super(CycleEncoder, self).__init__()
-        self.noiseStd = noiseStd
-
-        self.a2bEncode = AutoEncoder(inChannels, outChannels, channels, strides, kernelSize, upKernelSize,
-                                     numResUnits, interChannels, interDilations, numInterUnits, instanceNorm, dropout)
-        self.b2aEncode = AutoEncoder(inChannels, outChannels, channels, strides, kernelSize, upKernelSize,
-                                     numResUnits, interChannels, interDilations, numInterUnits, instanceNorm, dropout)
+    def __init__(self,a2bEncode,b2aEncode, noiseStd=1e-5):
+        super().__init__()
+        self.a2bEncode=a2bEncode
+        self.b2aEncode=b2aEncode
+        
+#    def __init__(self, inChannels, outChannels, channels, strides, kernelSize=3, upKernelSize=3, numResUnits=0,
+#                 interChannels=[], interDilations=[], numInterUnits=2, instanceNorm=True, dropout=0, noiseStd=1e-5):
+#        super(CycleEncoder, self).__init__()
+#        self.noiseStd = noiseStd
+#
+#        self.a2bEncode = AutoEncoder(inChannels, outChannels, channels, strides, kernelSize, upKernelSize,
+#                                     numResUnits, interChannels, interDilations, numInterUnits, instanceNorm, dropout)
+#        self.b2aEncode = AutoEncoder(inChannels, outChannels, channels, strides, kernelSize, upKernelSize,
+#                                     numResUnits, interChannels, interDilations, numInterUnits, instanceNorm, dropout)
 
     def a2bForward(self, x):
         return self.a2bEncode(x)[0]
@@ -682,6 +687,20 @@ class CycleEncoder(nn.Module):
         reconB = self.a2bForward(reconInA)
 
         return outA, outB, reconA, reconB
+
+
+class AECycleEncoder(CycleEncoder):
+    def __init__(self, inChannels, outChannels, channels, strides, kernelSize=3, upKernelSize=3, numResUnits=0,
+                 interChannels=[], interDilations=[], numInterUnits=2, instanceNorm=True, dropout=0, noiseStd=1e-5):
+
+        a2bEncode = AutoEncoder(inChannels, outChannels, channels, strides, kernelSize, upKernelSize,
+                                     numResUnits, interChannels, interDilations, numInterUnits, instanceNorm, dropout)
+        b2aEncode = AutoEncoder(inChannels, outChannels, channels, strides, kernelSize, upKernelSize,
+                                     numResUnits, interChannels, interDilations, numInterUnits, instanceNorm, dropout)
+        
+        super().__init__(a2bEncode,b2aEncode,noiseStd)
+        
+        
 
 
 class SegnetAE(AutoEncoder):

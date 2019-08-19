@@ -81,7 +81,7 @@ class NetworkManager(object):
     method descriptions for netForward(), lossForward(), train(), and evaluate() explain the necessary details to 
     implementing a subtype of this class.
     '''
-    def __init__(self,net,loss,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',**params):
+    def __init__(self,net,loss,isCuda=True,opt=None,saveDirPrefix=None,savePrefix='net',loadLastDir=False,**params):
         '''
         Initialize the manager with the given network `net' to be managed, optimizer `opt', and loss function `loss'.
         If `isCuda' is True the network and inputs are converted to cuda tensors. The `saveDirPrefix' is the prefix for
@@ -103,7 +103,7 @@ class NetworkManager(object):
         
         self.savedir=None
         self.savePrefix=savePrefix
-        self.logfilename='%s_train.log'%(self.savePrefix,)
+        self.doLog=True
         
         if isCuda and torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -117,6 +117,11 @@ class NetworkManager(object):
             self.opt=torch.optim.Adam(self.net.parameters(),lr=lr,betas=betas)
 
         if saveDirPrefix is not None:
+            if loadLastDir and os.path.isdir(saveDirPrefix):
+                mostRecent=max(glob.glob(saveDirPrefix+'-*'),key=os.path.getctime)
+                if os.path.isdir(mostRecent):
+                    saveDirPrefix=mostRecent
+                
             if os.path.exists(saveDirPrefix):
                 self.savedir=saveDirPrefix
                 self.reload()
@@ -170,20 +175,25 @@ class NetworkManager(object):
         ground=self.traininputs[-1]
         logits=self.netoutputs[0]
         return self.loss(logits,ground) 
+    
+    def getLogFilename(self):
+        return os.path.join(self.savedir,'%s_train.log'%(self.savePrefix,))
                 
     def log(self,*items):
-        '''Log the given values to self.logfilename is the save directory.'''
-        dt=datetime.datetime.now().strftime('%Y%m%d-%H:%M:%S: ')
-        msg=dt+' '.join(map(str,items))
-        
-        if self.savedir:
-            with open(os.path.join(self.savedir,self.logfilename),'a') as o:
-                print(msg,file=o)
+        '''Log the given values to getLogFilename().'''
+        if self.doLog:
+            dt=datetime.datetime.now().strftime('%Y%m%d-%H:%M:%S: ')
+            msg=dt+' '.join(map(str,items))
+            
+            if self.savedir:
+                with open(self.getLogFilename(),'a') as o:
+                    print(msg,file=o)
     
     def reload(self,prefix=None):
         '''Reload the network state by loading the most recent .pth file in the save directory if there is one.'''
         if self.savedir:
-            files=glob.glob(os.path.join(self.savedir,(self.savePrefix if prefix is None else prefix)+'*.pth'))
+            prefix=self.savePrefix if prefix is None else prefix
+            files=glob.glob(os.path.join(self.savedir,prefix+'*.pth'))
             if files:
                 self.load(max(files,key=os.path.getctime))
     
@@ -209,6 +219,7 @@ class NetworkManager(object):
         torch.save(state,path)
         
     def setRequiresGrad(self,grad=True):
+        '''Set requires_grad for every parameter of self.net to `grad'.'''
         for p in self.net.parameters():
             p.requires_grad=grad
         
@@ -531,3 +542,85 @@ class GeneratorMgr(NetworkManager):
         
         discloss=self.loss(preds)
         return discloss
+    
+
+class CycleGANMgr(NetworkManager):
+    def __init__(self,net,discA,discB,srcA,srcB,discparams, lambdaA=1.0, lambdaB=1.0, lambdaIdent=0.0,
+                 loss=torch.nn.MSELoss(), lossIdent=torch.nn.MSELoss(), saveDirPrefix=None,**params):
+        
+        self.srcA=srcA
+        self.srcB=srcB
+        self.discparams=discparams
+        self.lossVals=[]
+        
+        self.lambdaIdent=lambdaIdent
+        self.lambdaA=lambdaA
+        self.lambdaB=lambdaB
+        self.lossIdent=lossIdent
+        self.discA=discA
+        self.discB=discB
+        
+        NetworkManager.__init__(self,net,loss,saveDirPrefix=saveDirPrefix,**params)
+
+        if self.discA.savedir is None:
+            self.discA.savedir=self.savedir
+            if self.discA.savePrefix==self.savePrefix:
+                self.discA.savePrefix='discA'
+                
+        if self.discB.savedir is None:
+            self.discB.savedir=self.savedir
+            if self.discB.savePrefix==self.savePrefix:
+                self.discB.savePrefix='discB'
+        
+    def netForward(self):
+        imA,_,imB,_=self.traininputs
+        return self.net(imA,imB)
+    
+    def saveStep(self,step,steploss):
+        self.discA.saveStep(step,steploss)
+        self.discB.saveStep(step,steploss)
+        super().saveStep(step,steploss)
+    
+    def trainStep(self,numSubsteps):
+        super().trainStep(numSubsteps)
+        
+        outA,outB,reconA,reconB=self.netoutputs
+        
+        self.discA.setRequiresGrad(True)
+        self.discB.setRequiresGrad(True)
+        
+        self.discA.appendGeneratedOutput(self.toNumpy(outA))
+        self.discB.appendGeneratedOutput(self.toNumpy(outB))
+        
+        discBatchSize=self.discparams.get('batchSize',self.traininputs[0].shape[0])
+        discTrainSteps=self.discparams.get('trainSteps',10)
+        discSubSteps=self.discparams.get('substeps',5)
+
+        self.discA.trainDiscriminator(discBatchSize,discTrainSteps,discSubSteps,0)
+        self.discB.trainDiscriminator(discBatchSize,discTrainSteps,discSubSteps,0)
+
+    def lossForward(self):
+        imA,_,imB,_=self.traininputs
+        outA,outB,reconA,reconB=self.netoutputs
+        
+        self.discA.setRequiresGrad(False)
+        self.discB.setRequiresGrad(False)
+        
+        self.lossVals=[
+            self.loss(reconA,imA)*self.lambdaA,
+            self.loss(reconB,imB)*self.lambdaB,
+            self.discA(outA),
+            self.discB(outB)
+        ]
+        
+        # identity mapping loss
+        if self.lambdaIdent>0:
+            identB=self.net.b2aForward(imA)
+            identA=self.net.a2bForward(imB)
+            self.lossVals+=[
+                self.lossIdent(identA,imB)*self.lambdaB*self.lambdaIdent,
+                self.lossIdent(identB,imA)*self.lambdaA*self.lambdaIdent
+            ]
+        
+        return sum(self.lossVals)
+    
