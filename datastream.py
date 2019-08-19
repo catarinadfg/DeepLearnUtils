@@ -4,8 +4,7 @@
 from functools import wraps
 from multiprocessing.pool import ThreadPool
 from queue import Queue, Full, Empty
-from threading import Thread, Event, RLock
-from contextlib import contextmanager
+from threading import Thread, Event
 import numpy as np
 
 
@@ -140,6 +139,10 @@ class ArraySource(DataStream):
                 
                 
 class NPZFileSource(ArraySource):
+    """
+    Loads arrays from an .npz file as the source data. Other values can be loaded from the file and stored in 
+    `otherValues` rather than used as source data.
+    """
     def __init__(self,fileName,arrayNames,otherValues=[],orderType=OrderType.LINEAR,doOnce=False):
         self.fileName=fileName
         
@@ -159,7 +162,7 @@ class NPZFileSource(ArraySource):
         
 
 class RandomGenerator(DataStream):
-    """Randomly generate float32 arrays of the given shape."""
+    """Randomly generates float32 arrays of the given shape using np.random.rand()."""
     def __init__(self,*shape):
         super().__init__(self.generateRandArray(shape))
 
@@ -169,7 +172,7 @@ class RandomGenerator(DataStream):
     
     
 class TestImageGenerator(DataStream):
-    """Generate 2D image/seg test image pairs."""
+    """Generates 2D image/seg test image pairs."""
     def __init__(self,width,height,numObjs=12,radMax=30,noiseMax=0.0,numSegClasses=5):
         self.doGen=True
         self.width=width
@@ -190,6 +193,7 @@ class TestImageGenerator(DataStream):
             
 
 class BatchStream(DataStream):
+    """Collects values from the source together into a batch of the stated size."""
     def __init__(self,src,batchSize):
         super().__init__(src)
         self.batchSize=batchSize
@@ -206,6 +210,7 @@ class BatchStream(DataStream):
                 
             
 class AugmentStream(BatchStream):
+    """Applies the given augmentations in order to each value from the source and yields the results in batches."""
     def __init__(self,src,batchSize,augments=[]):
         super().__init__(src,batchSize)
         self.augments=augments
@@ -219,6 +224,10 @@ class AugmentStream(BatchStream):
         
 
 class ThreadAugmentStream(AugmentStream):
+    """
+    Applies the given augmentations to each value from the source using multiple threads. Resulting batches are yielded
+    synchronously so the client must wait for the threads to complete. 
+    """
     def __init__(self,src,batchSize,numThreads=None,augments=[]):
         super().__init__(src,batchSize,augments)
         self.numThreads=numThreads
@@ -263,11 +272,21 @@ class ThreadAugmentStream(AugmentStream):
                             
                         
 class ThreadBufferStream(DataStream):
+    """
+    Iterates over values from self.src in a separate thread but yielding them in the current thread. This allows values
+    to be queued up asynchronously. This class also acts as a context manager which will stop the thread when it exits a 
+    context block.
+    
+    One issue using a thread in this way raises is that during the lifetime of the thread the source object is being 
+    iterated over, so if the thread hasn't finished another attempt to iterate over it will raise an exception. To
+    ensure the thread releases the iteration the __iter__() method will use an event to stop the thread when it is asked 
+    to complete, which is when the iterator object it creates is cleaned up. If iter() is used to create this object its 
+    lifetime is not always predictable, hence the thread can be explicitly stopped by using this object in a context.
+    """
     def __init__(self,src,bufferSize=1,timeout=0.01):
         super().__init__(src)
         self.bufferSize=bufferSize
         self.timeout=timeout
-        self.rlock=RLock()
         self.buffer=Queue(self.bufferSize)
         self.stopEvent=Event()
         
@@ -286,26 +305,12 @@ class ThreadBufferStream(DataStream):
                 return
             
     def __enter__(self):
-        if not self.rlock.acquire(False):
-            raise ValueError('Cannot acquire thread lock for this stream')
-
-        try:
-            self.stopEvent.clear()
-            return self
-        except:
-            self.rlock.release()
+        return self
             
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if not self.rlock.acquire(False):
-            raise ValueError('Cannot acquire thread lock for this stream')
-            
-        self.stopEvent.set()
-        self.rlock.release()
+        self.stopEvent.set() # stop the thread, this will stop the iteration over self.src
         
     def __iter__(self):
-        if not self.rlock.acquire(False):
-            raise ValueError('Cannot acquire thread lock for this stream')
-            
         self.stopEvent.clear()
         genThread=Thread(target=self.enqueueValues,daemon=True)
         genThread.start()
@@ -319,46 +324,4 @@ class ThreadBufferStream(DataStream):
         finally:
             self.stopEvent.set()   
             genThread.join()
-            self.rlock.release()
-        
-#    def __iter__(self):
-#        buffer=Queue(self.bufferSize)
-#        stopEvent=Event()
-#        
-#        genThread=Thread(target=self.enqueueValues,args=(buffer,stopEvent),daemon=True)
-#        genThread.start()
-#        
-#        try:
-#            while self.isRunning and genThread.is_alive():
-#                try:
-#                    yield buffer.get(timeout=self.timeout)
-#                except Empty:
-#                    pass # queue was empty this time, try again
-#        finally:
-#            stopEvent.set()   
-#            genThread.join()
-            
-#    @contextmanager
-#    def iterAsync(self):
-#        buffer=Queue(self.bufferSize)
-#        stopEvent=Event()
-#        
-#        genThread=Thread(target=self.enqueueValues,args=(buffer,stopEvent),daemon=True)
-#        genThread.start()
-#            
-#        def _iterBuffer():
-#            try:
-#                while self.isRunning and genThread.is_alive():
-#                    try:
-#                        yield buffer.get(timeout=self.timeout)
-#                    except Empty:
-#                        pass # queue was empty this time, try again
-#            finally:
-#                stopEvent.set()   
-#
-#        try:
-#            yield _iterBuffer
-#        finally:
-#            stopEvent.set()
-#            genThread.join()
         
