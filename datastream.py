@@ -267,40 +267,76 @@ class ThreadBufferStream(DataStream):
         super().__init__(src)
         self.bufferSize=bufferSize
         self.timeout=timeout
-#        self.rlock=RLock()
-#        self.buffer=Queue(self.bufferSize)
-#        self.stopEvent=Event()
+        self.rlock=RLock()
+        self.buffer=Queue(self.bufferSize)
+        self.stopEvent=Event()
         
-    def enqueueValues(self,buffer,stopEvent):
+    def enqueueValues(self):
         # allows generate() to be overridden and used here (instead of iter(self.src))
         for srcVal in super().__iter__():
-            while self.isRunning and not stopEvent.is_set():
+            while self.isRunning and not self.stopEvent.is_set():
                 try:
-                    buffer.put(srcVal,timeout=self.timeout)
+                    self.buffer.put(srcVal,timeout=self.timeout)
                 except Full:
                     pass # try to add the item again
                 else:
                     break # successfully added the item, quit trying
              
-            if stopEvent.is_set(): # quit the thread cleanly when the event is set
+            if self.stopEvent.is_set(): # quit the thread cleanly when the event is set
                 return
+            
+    def __enter__(self):
+        if not self.rlock.acquire(False):
+            raise ValueError('Cannot acquire thread lock for this stream')
+
+        try:
+            self.stopEvent.clear()
+            return self
+        except:
+            self.rlock.release()
+            
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not self.rlock.acquire(False):
+            raise ValueError('Cannot acquire thread lock for this stream')
+            
+        self.stopEvent.set()
+        self.rlock.release()
         
     def __iter__(self):
-        buffer=Queue(self.bufferSize)
-        stopEvent=Event()
-        
-        genThread=Thread(target=self.enqueueValues,args=(buffer,stopEvent),daemon=True)
+        if not self.rlock.acquire(False):
+            raise ValueError('Cannot acquire thread lock for this stream')
+            
+        self.stopEvent.clear()
+        genThread=Thread(target=self.enqueueValues,daemon=True)
         genThread.start()
         
         try:
             while self.isRunning and genThread.is_alive():
                 try:
-                    yield buffer.get(timeout=self.timeout)
+                    yield self.buffer.get(timeout=self.timeout)
                 except Empty:
                     pass # queue was empty this time, try again
         finally:
-            stopEvent.set()   
+            self.stopEvent.set()   
             genThread.join()
+            self.rlock.release()
+        
+#    def __iter__(self):
+#        buffer=Queue(self.bufferSize)
+#        stopEvent=Event()
+#        
+#        genThread=Thread(target=self.enqueueValues,args=(buffer,stopEvent),daemon=True)
+#        genThread.start()
+#        
+#        try:
+#            while self.isRunning and genThread.is_alive():
+#                try:
+#                    yield buffer.get(timeout=self.timeout)
+#                except Empty:
+#                    pass # queue was empty this time, try again
+#        finally:
+#            stopEvent.set()   
+#            genThread.join()
             
 #    @contextmanager
 #    def iterAsync(self):
