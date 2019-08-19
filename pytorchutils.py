@@ -546,7 +546,7 @@ class GeneratorMgr(NetworkManager):
 
 class CycleGANMgr(NetworkManager):
     def __init__(self,net,discA,discB,srcA,srcB,discparams, lambdaA=1.0, lambdaB=1.0, lambdaIdent=0.0,
-                 loss=torch.nn.MSELoss(), lossIdent=torch.nn.MSELoss(), saveDirPrefix=None,**params):
+                 loss=torch.nn.MSELoss(), lossIdent=torch.nn.MSELoss(), saveDirPrefix=None,loadLastDir=False,**params):
         
         self.srcA=srcA
         self.srcB=srcB
@@ -560,7 +560,7 @@ class CycleGANMgr(NetworkManager):
         self.discA=discA
         self.discB=discB
         
-        NetworkManager.__init__(self,net,loss,saveDirPrefix=saveDirPrefix,**params)
+        NetworkManager.__init__(self,net,loss,saveDirPrefix=saveDirPrefix,loadLastDir=loadLastDir,**params)
 
         if self.discA.savedir is None:
             self.discA.savedir=self.savedir

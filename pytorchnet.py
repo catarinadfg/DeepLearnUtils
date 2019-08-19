@@ -652,16 +652,6 @@ class CycleEncoder(nn.Module):
         super().__init__()
         self.a2bEncode=a2bEncode
         self.b2aEncode=b2aEncode
-        
-#    def __init__(self, inChannels, outChannels, channels, strides, kernelSize=3, upKernelSize=3, numResUnits=0,
-#                 interChannels=[], interDilations=[], numInterUnits=2, instanceNorm=True, dropout=0, noiseStd=1e-5):
-#        super(CycleEncoder, self).__init__()
-#        self.noiseStd = noiseStd
-#
-#        self.a2bEncode = AutoEncoder(inChannels, outChannels, channels, strides, kernelSize, upKernelSize,
-#                                     numResUnits, interChannels, interDilations, numInterUnits, instanceNorm, dropout)
-#        self.b2aEncode = AutoEncoder(inChannels, outChannels, channels, strides, kernelSize, upKernelSize,
-#                                     numResUnits, interChannels, interDilations, numInterUnits, instanceNorm, dropout)
 
     def a2bForward(self, x):
         return self.a2bEncode(x)[0]
