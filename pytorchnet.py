@@ -652,6 +652,7 @@ class CycleEncoder(nn.Module):
         super().__init__()
         self.a2bEncode=a2bEncode
         self.b2aEncode=b2aEncode
+        self.noiseStd=noiseStd
 
     def a2bForward(self, x):
         return self.a2bEncode(x)[0]
