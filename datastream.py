@@ -1,6 +1,11 @@
+# DeepLearnUtils 
+# Copyright (c) 2017-8 Eric Kerfoot, KCL, see LICENSE file
 
 from functools import wraps
 from multiprocessing.pool import ThreadPool
+from queue import Queue, Full, Empty
+from threading import Thread, Event, RLock
+from contextlib import contextmanager
 import numpy as np
 
 
@@ -256,3 +261,68 @@ class ThreadAugmentStream(AugmentStream):
                     yield self.batchArrays
                     srcVals=[]
                             
+                        
+class ThreadBufferStream(DataStream):
+    def __init__(self,src,bufferSize=1,timeout=0.01):
+        super().__init__(src)
+        self.bufferSize=bufferSize
+        self.timeout=timeout
+#        self.rlock=RLock()
+#        self.buffer=Queue(self.bufferSize)
+#        self.stopEvent=Event()
+        
+    def enqueueValues(self,buffer,stopEvent):
+        # allows generate() to be overridden and used here (instead of iter(self.src))
+        for srcVal in super().__iter__():
+            while self.isRunning and not stopEvent.is_set():
+                try:
+                    buffer.put(srcVal,timeout=self.timeout)
+                except Full:
+                    pass # try to add the item again
+                else:
+                    break # successfully added the item, quit trying
+             
+            if stopEvent.is_set(): # quit the thread cleanly when the event is set
+                return
+        
+    def __iter__(self):
+        buffer=Queue(self.bufferSize)
+        stopEvent=Event()
+        
+        genThread=Thread(target=self.enqueueValues,args=(buffer,stopEvent),daemon=True)
+        genThread.start()
+        
+        try:
+            while self.isRunning and genThread.is_alive():
+                try:
+                    yield buffer.get(timeout=self.timeout)
+                except Empty:
+                    pass # queue was empty this time, try again
+        finally:
+            stopEvent.set()   
+            genThread.join()
+            
+#    @contextmanager
+#    def iterAsync(self):
+#        buffer=Queue(self.bufferSize)
+#        stopEvent=Event()
+#        
+#        genThread=Thread(target=self.enqueueValues,args=(buffer,stopEvent),daemon=True)
+#        genThread.start()
+#            
+#        def _iterBuffer():
+#            try:
+#                while self.isRunning and genThread.is_alive():
+#                    try:
+#                        yield buffer.get(timeout=self.timeout)
+#                    except Empty:
+#                        pass # queue was empty this time, try again
+#            finally:
+#                stopEvent.set()   
+#
+#        try:
+#            yield _iterBuffer
+#        finally:
+#            stopEvent.set()
+#            genThread.join()
+        

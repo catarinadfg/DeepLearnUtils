@@ -8,7 +8,10 @@ from collections import OrderedDict
 from itertools import product, starmap
 import inspect
 import numpy as np
-import scipy.ndimage, scipy.spatial
+
+import scipy.spatial
+from scipy.ndimage import label, binary_fill_holes, maximum_filter, sum as ndsum
+
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import matplotlib.animation as animation
@@ -123,7 +126,7 @@ def oneHot(labels,numClasses):
     y = np.eye(numClasses)
     onehot=y[labels.flatten()]
     
-    return onehot.reshape(tuple(labels.shape)+(numClasses,))
+    return onehot.reshape(tuple(labels.shape)+(numClasses,)).astype(labels.dtype)
 
 
 def iouMetric(a,b,smooth=1e-5):
@@ -292,8 +295,8 @@ def rescaleArrayIntMax(arr,dtype=np.uint16):
 
 def getLargestMaskObject(mask):
     '''Given a numpy array `mask' containing a binary mask, returns an equivalent array with only the largest mask object.'''
-    labeled,numfeatures=scipy.ndimage.label(mask) # generate a feature label
-    sums=scipy.ndimage.sum(mask,labeled,list(range(numfeatures+1))) # sum the pixels under each label
+    labeled,numfeatures=label(mask) # generate a feature label
+    sums=ndsum(mask,labeled,list(range(numfeatures+1))) # sum the pixels under each label
     maxfeature=np.where(sums==max(sums)) # choose the maximum sum whose index will be the label number
     
     return mask*(labeled==maxfeature)
@@ -308,6 +311,64 @@ def getLargestSegments(segments,numClasses=1):
             seg1hot[...,i]=getLargestMaskObject(seg1hot[...,i])
             
         return np.argmax(seg1hot[...,1:],seg1hot.ndim-2)
+    
+    
+def greyFillHoles(im,filterSize=3):
+    im0=im!=0
+    holes=binary_fill_holes(im0)^im0
+
+    while np.any(holes>0):
+        im=im+maximum_filter(im,3)*holes
+        im0=im!=0
+        holes=binary_fill_holes(im0)^im0
+        
+    return im
+
+
+def cleanSegment(seg,fillHoles=True, keepLargest=True,minSize=0):
+    numUniqueVals=np.unique(seg).shape[0]
+    assert numUniqueVals>1
+
+    foreground=seg!=0
+    fillable=binary_fill_holes(foreground)!=foreground
+    
+    seg1h=oneHot(seg,numUniqueVals)
+    seg1h[...,0]=0 # zero out background so that argmax does not pick it as the first non-zero index
+
+    # clean each segmentation channel separately
+    for n in range(1,numUniqueVals):
+        segn=seg1h[...,n]
+    
+        if np.unique(segn).shape[0]>1:
+            labeled,numfeatures=label(segn) # label each separate object with a different number
+            sums=ndsum(segn,labeled,range(numfeatures+1)) # sum the pixels under each label
+
+            # keep the largest feature or eliminate ones smaller than the minimum size
+            if keepLargest:
+                maxfeature=np.where(sums==max(sums))[0] # choose the maximum sum whose index will be the label number
+                if len(maxfeature) > 0:
+                    segn=(labeled==maxfeature[0]).astype(segn.dtype)
+            elif minSize>0:
+                segn=segn.copy()
+                for i,s in enumerate(sums[1:]): # skip background
+                    if s<minSize:
+                        segn[labeled==(i+1)]=0
+
+            # fill holes, that is background areas surrounded by segmentation
+            if fillHoles:
+                # choose pixels that are background and are in areas filled by binary fill
+                holes=fillable*(binary_fill_holes(segn)!=segn)                
+                segn[holes]=1
+                
+        seg1h[...,n]=segn
+
+    seg=np.argmax(seg1h,seg1h.ndim-1)
+        
+    # eliminating smaller features from segmentation channels may create holes so fill these in
+    if fillHoles:
+        seg=greyFillHoles(seg)
+        
+    return seg    
         
 
 def generateMaskConvexHull(mask):
@@ -522,9 +583,16 @@ def compareSegsRGB(ground,pred,numClasses=1):
     
 
 def showImages(*images,**kwargs):
-    axis=kwargs.get('axis','off')
-    figSize=kwargs.get('figSize',(10,4))
-    titles=list(kwargs.get('titles',[]))
+    '''
+    Plot the arrays in `images' as one horizontal plot using imshow(). The `axis' keyword is used to turn plotting with
+    axes on and off (the default), and `figSize' to set the size of the whole figure ((10,4) the default). Titles for
+    each image can be given in the list `titles', whatever images aren't named here will be given default names. All
+    other named values in `kwargs' will be passed to imshow().
+    '''
+    axis=kwargs.pop('axis','off')
+    figSize=kwargs.pop('figSize',(10,4))
+    
+    titles=list(kwargs.pop('titles',[]))
     titles+=['Image %i'%i for i in range(len(titles),len(images))]
     
     fig, axes = plt.subplots(1, len(images), figsize=figSize)
@@ -532,7 +600,7 @@ def showImages(*images,**kwargs):
         axes=[axes]
         
     for ax,im,title in zip(axes,images,titles):
-        ax.imshow(np.squeeze(im))
+        ax.imshow(np.squeeze(im),**kwargs)
         ax.axis(axis)
         ax.set_title('%s\n%.3g -> %.3g'%(title,im.min(),im.max()))
         
