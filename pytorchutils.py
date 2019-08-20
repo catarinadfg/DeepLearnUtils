@@ -117,12 +117,13 @@ class NetworkManager(object):
             self.opt=torch.optim.Adam(self.net.parameters(),lr=lr,betas=betas)
 
         if saveDirPrefix is not None:
-            if loadLastDir and os.path.isdir(saveDirPrefix):
+            # attempt to choose the most recent saved directory having the given prefix
+            if loadLastDir:
                 mostRecent=max(glob.glob(saveDirPrefix+'-*'),key=os.path.getctime)
                 if os.path.isdir(mostRecent):
                     saveDirPrefix=mostRecent
                 
-            if os.path.exists(saveDirPrefix):
+            if os.path.exists(saveDirPrefix): # if the directory exists reload it
                 self.savedir=saveDirPrefix
                 self.reload()
             else:
@@ -131,6 +132,7 @@ class NetworkManager(object):
 #                os.mkdir(self.savedir)
                 
     def setSaveDir(self,dirName,addTimestamp=True):
+        '''Create a new save directory starting with `dirName', followed by a timestamp suffix if `addTimestamp'.'''
         if addTimestamp:
             dirName='%s-%s'%(dirName,datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
             
