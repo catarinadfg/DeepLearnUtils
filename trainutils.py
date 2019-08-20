@@ -12,9 +12,9 @@ import numpy as np
 import scipy.spatial
 from scipy.ndimage import label, binary_fill_holes, maximum_filter, sum as ndsum
 
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
-import matplotlib.animation as animation
+#import matplotlib.pyplot as plt
+#from matplotlib.ticker import MaxNLocator
+#import matplotlib.animation as animation
 
 isWindows=platform.system().lower()=='windows'
 
@@ -589,6 +589,7 @@ def showImages(*images,**kwargs):
     each image can be given in the list `titles', whatever images aren't named here will be given default names. All
     other named values in `kwargs' will be passed to imshow().
     '''
+    import matplotlib.pyplot as plt
     axis=kwargs.pop('axis','off')
     figSize=kwargs.pop('figSize',(10,4))
     
@@ -611,6 +612,8 @@ def comparePrediction(imgs,masks,logits,preds,title=''):
     '''
     Expects `imgs' of shape BWHC, all others of shape BWH
     '''
+    import matplotlib.pyplot as plt
+    
     figax=[]
     for index in range(preds.shape[0]):
         im=imgs[index,...,0]
@@ -673,6 +676,8 @@ def viewImagesPyQtGraph(img,mask,maskval=0.25):
 
 
 def plotSystemInfo(ax=None):
+    import matplotlib.pyplot as plt
+    
     ax=ax or plt.subplot()
     cols=[]
     labels=['CPU Load','Mem Alloc']
@@ -723,6 +728,9 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
     '''
     Plot graph data with images below in a pyplot figure. 
     '''
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+
     gridshape=(4, max(1,len(imagemap)))
     
     if fig is not None:
@@ -764,6 +772,8 @@ def plotGraphImages(graphtitle,graphmap,imagemap,yscale='log',fig=None):
 
 def viewVolumeJupyter(vol,figSize=(8,8),interval=250,textSize=10):
     from IPython.core.display import HTML
+    import matplotlib.pyplot as plt
+    import matplotlib.animation as animation
     
     fig, ax = plt.subplots(figsize=figSize)
     plt.axis("off")
@@ -814,6 +824,8 @@ class JupyterThreadMonitor(threading.Thread):
             self.imageVals.update(vals)
             
     def displayMonitor(self,delay=10.0,doOnce=False):
+        import matplotlib.pyplot as plt
+        
         self.fig=None
         title='Train Values Step '
         

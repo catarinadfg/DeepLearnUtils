@@ -92,7 +92,36 @@ def gaussianConv(numChannels, dimensions, kernelSize, stride=2, sigma=0.75):
     filt = filt[None, None].repeat(numChannels, 0)  # expand dimensions: (k0,k1,k2) -> (c,1,k0,k1,k2)
 
     conv = convType(numChannels, numChannels, kernelSize, stride, padding, 1, numChannels, False)
-    conv.weight.data = torch.tensor(filt)
+    conv.weight.data[...] = torch.tensor(filt)
+    conv.weight.data.requires_grad = False
+
+    return conv
+
+
+def gaussianSetChannels(inChannels,outChannels, dimensions, sigma=2):
+    '''
+    Change the channels of an input tensor from `inChannels' to `outChannels' through interpolation using a 1D kernel
+    implementing gaussian filters.
+    '''
+    if dimensions == 1:
+        convType = nn.Conv1d
+    elif dimensions == 2:
+        convType = nn.Conv2d
+    else:
+        convType = nn.Conv3d
+
+    @np.vectorize
+    def gauss1D(position,coord):
+        distSq = (coord - (position/(outChannels-1)*(inChannels-1))) ** 2
+        d = np.sqrt(np.sum(distSq))  # the distance from coord to the position
+        return np.exp(-(d / (2 * sigma)) ** 2)
+    
+    filt=np.fromfunction(gauss1D,(outChannels,inChannels)).astype(np.float32)
+    filt=filt/filt.sum(1)[:,None].repeat(inChannels,1) # normalize so that each filt[i] sums to 1
+    filt=filt[(slice(None),slice(None))+(None,)*dimensions]
+    
+    conv = convType(inChannels, outChannels, 1,bias=False)
+    conv.weight.data[...] = torch.tensor(filt)
     conv.weight.data.requires_grad = False
 
     return conv
