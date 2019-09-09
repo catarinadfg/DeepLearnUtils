@@ -16,14 +16,15 @@ class OrderType(object):
 
 class DataStream(object):
     """
-    The DataStream class represents a chain of iterable objects where one iterates over its source and
-    in turn yields values which are possibly transformed. This allows an intermediate object in the
-    stream to modify a data element which passes through the stream or generate more than out output
-    value for each input. The type relies on an input source which must be an iterable, then passes
-    each item from the source into the generate() generator method to produce one or more items which
-    it then yields. A sequence of stream objects is created by using one stream as the source to another.
-    Subclasses can override generate() to produce filter or transformer types to place in a sequence 
-    DataStream objects, or use the `streamgen` decorator to do the same. 
+    The DataStream class represents a chain of iterable objects where one iterates over its source and in turn yields 
+    values which are possibly transformed. This allows an intermediate object in the stream to modify a data element 
+    which passes through the stream or generate more than one output value for each input. A sequence of stream objects 
+    is created by using one stream as the source to another.
+    
+    This relies on an input source which must be an iterable. Values are taken from this in order and then passed to the 
+    generate() generator method to produce one or more items, which are then yielded. Subclasses can override generate() 
+    to produce filter or transformer types to place in a sequence of DataStream objects. The `streamgen` decorator can 
+    be used to do the same. 
     """
     def __init__(self,src):
         """Initialize with `src' as the source iterable, and self.isRunning as True."""
@@ -205,7 +206,8 @@ class BatchStream(DataStream):
             srcVals.append(srcVal)
 
             if len(srcVals)==self.batchSize:
-                yield tuple(map(np.stack,zip(*srcVals)))
+                # stack the arrays from each item into one 
+                yield tuple(map(np.stack,zip(*srcVals))) # zipWith using np.stack
                 srcVals=[]
                 
             
@@ -324,4 +326,32 @@ class ThreadBufferStream(DataStream):
         finally:
             self.stopEvent.set()   
             genThread.join()
+        
+        
+class MergeStream(DataStream):
+    def __init__(self,*srcs):
+        self.srcs=srcs
+        super().__init__(self.yieldMergedValues)
+        
+    def yieldMergedValues(self):
+        iters=[iter(s) for s in self.srcs]
+        canContinue=True
+        
+        while self.isRunning and canContinue:
+            try:
+                values=[]
+                for it in iters:
+                    val=next(it)
+                    if not isinstance(val,(list,tuple)):
+                        val=(val,)
+                        
+                    values.append(tuple(val))
+                    
+                srcVal=sum(values,())
+                
+                for outVal in self.generate(srcVal):
+                    yield outVal
+            # must be caught as it won't propagate but magically mutate into RuntimeError
+            except StopIteration: 
+                canContinue=False
         

@@ -9,6 +9,12 @@ import scipy.fftpack as ft
 
 import trainutils
         
+try:
+    from PIL import Image
+    pilAvailable=True
+except ImportError:
+    pilAvailable=False
+    
 
 def augment(prob=0.5,applyIndices=None):
     '''
@@ -171,8 +177,7 @@ def zoom(*arrs,zoomrange=0.2):
 @checkSegmentMargin
 def rotateZoomPIL(*arrs,margin=5,minFract=0.5,maxFract=2,resample=0):
     assert all(a.ndim>=2 for a in arrs)
-    
-    from PIL import Image
+    assert pilAvailable,'PIL (pillow) not installed'
     
     testim=arrs[0]
     x,y=testim.shape[:2]
@@ -181,7 +186,7 @@ def rotateZoomPIL(*arrs,margin=5,minFract=0.5,maxFract=2,resample=0):
     zoomx=x+np.random.randint(-x*minFract,x*maxFract)
     zoomy=y+np.random.randint(-y*minFract,y*maxFract)
     
-    filters=(Image.NEAREST,Image.ANTIALIAS ,Image.LINEAR,Image.BICUBIC)
+    filters=(Image.NEAREST,Image.LINEAR,Image.BICUBIC)
     
     def _trans(im):
         if im.dtype!=np.float32:
@@ -209,7 +214,7 @@ def rotateZoomPIL(*arrs,margin=5,minFract=0.5,maxFract=2,resample=0):
 @augment()
 def deformPIL(*arrs,defrange=25,numControls=3,margin=2,mapOrder=1):
     '''Deforms arrays randomly with a deformation grid of size `numControls'**2 with `margins' grid values fixed.'''
-    from PIL import Image
+    assert pilAvailable,'PIL (pillow) not installed'
     
     h,w = arrs[0].shape[:2]
     

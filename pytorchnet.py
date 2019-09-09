@@ -134,6 +134,15 @@ class Identity(nn.Module):
     def forward(self, x):
         return x
     
+    
+class SkipConnection(nn.Module):
+    def __init__(self,submodule):
+        super().__init__()
+        self.submodule=submodule
+        
+    def forward(self,x):
+        return torch.cat([x, self.submodule(x)], 1)
+    
 
 class DiceLoss(_Loss):
     '''
@@ -720,7 +729,37 @@ class AECycleEncoder(CycleEncoder):
         
         super().__init__(a2bEncode,b2aEncode,noiseStd)
         
+ 
+class PixelShuffleAE(AutoEncoder):
+    def __init__(self,inChannels,outChannels,upscaleFactor,channels,strides,kernelSize=3,
+                 numResUnits=0,interChannels=[], interDilations=[], numInterUnits=0,instanceNorm=True, dropout=0):
         
+        self.upscaleFactor=upscaleFactor
+        super().__init__(inChannels,outChannels,channels,strides,kernelSize,3,numResUnits, 
+                         interChannels, interDilations,numInterUnits, instanceNorm, dropout)
+        
+    def _getIntermediateModule(self,inChannels,numInterUnits):
+        db= DenseBlock(inChannels,self.interChannels,self.interDilations,self.kernelSize,self.numInterUnits,self.instanceNorm,self.dropout)
+        return db, db.outChannels
+        
+    def _getDecodeModule(self,inChannels,channels,strides):
+        outChannels=channels[-1]*self.upscaleFactor*self.upscaleFactor
+        decode=torch.nn.Sequential()
+        decode.add_module('setChan',torch.nn.Conv2d(inChannels,outChannels,1))
+        decode.add_module('shuffle',torch.nn.PixelShuffle(self.upscaleFactor))
+        return decode,channels[-1]
+       
+
+class CycleEncoderPS(CycleEncoder):
+    def __init__(self,inChannels,outChannels,upscaleFactor,channels,strides,kernelSize=3,upKernelSize=3,
+                 numResUnits=0,interChannels=[], interDilations=[], numInterUnits=2,instanceNorm=True, dropout=0,noiseStd=1e-5):
+        
+        a2bEncode=PixelShuffleAE(inChannels,outChannels,upscaleFactor,channels,strides,kernelSize,
+                 numResUnits,interChannels, interDilations, numInterUnits,instanceNorm, dropout) 
+        b2aEncode=PixelShuffleAE(inChannels,outChannels,upscaleFactor,channels,strides,kernelSize,
+                 numResUnits,interChannels, interDilations, numInterUnits,instanceNorm, dropout)
+        
+        super().__init__(a2bEncode,b2aEncode,noiseStd)
 
 
 class SegnetAE(AutoEncoder):
@@ -777,7 +816,7 @@ class Unet(nn.Module):
             down = self._getDownLayer(inc, c, s, isTop)
             up = self._getUpLayer(upc, outc, s, isTop)
 
-            return UnetBlock(down, up, subblock)
+            return nn.Sequential(down,SkipConnection(subblock),up) #UnetBlock(down, up, subblock)
 
         self.model = _createBlock(inChannels, numClasses, self.channels, self.strides, True)
 
